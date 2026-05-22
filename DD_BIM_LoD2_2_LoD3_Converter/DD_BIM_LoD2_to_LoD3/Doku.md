@@ -1,0 +1,2431 @@
+# LoD2 → LoD3 Konvertierungspipeline
+
+Modulare Java-Pipeline zur Konvertierung von CityGML LoD2-Modellen nach LoD3 mit citygml4j 3.2.7.
+
+## Architektur
+
+**Single-Pass-Pipeline**: Die Eingabedatei wird genau einmal gelesen. Fuer jedes
+Gebaeude werden alle Verarbeitungsschritte im Speicher ausgefuehrt, bevor das Ergebnis
+einmal geschrieben wird. Es entstehen keine Zwischendateien.
+
+```
++-------------------------------------------------------------+
+|                    Lod2ToLod3Pipeline                       |
+|               (Single-Pass-Verarbeitung)                    |
++-------------------------------------------------------------+
+      |                                               |
+  CityGMLReader                               CityGMLChunkWriter
+  (1x lesen)                                  (1x schreiben)
+      |                                               |
+      v                                               |
+  +--- pro Building im Speicher: ------------------+  |
+  |  1. Promoter:  LoD2 → LoD3 Geometrie          |  |
+  |  2. Basement:  Keller hinzufuegen              |  |
+  |  3. Storeys:   Geschosse unterteilen           |--+
+  |  4. Doors:     Tueren einfuegen                |  |
+  |  5. Windows:   Fenster einfuegen               |  |
+  +------------------------------------------------+
+```
+
+Die Verarbeitungsschritte koennen auch einzeln ausgefuehrt werden
+(jeweils eigene `main()`-Methode mit eigenem Lese-/Schreibzyklus).
+
+## Schnellstart
+
+### Komplette Pipeline (empfohlen)
+
+```bash
+# Mit Maven direkt ausfuehren (empfohlen fuer Entwicklung)
+mvn exec:java -Dexec.mainClass=de.mpsc.lod2tolod3.Lod2ToLod3Pipeline \
+  -Dexec.args="input.gml Baukoerpermodule_json/ output/"
+
+# Mit optionalem Gelaendemodell (DGM) fuer praezise TerrainIntersectionCurves
+# Unterstuetzt: .asc (ASCII Grid), .tif (GeoTIFF), .zip oder Verzeichnis (Mosaik)
+mvn exec:java -Dexec.mainClass=de.mpsc.lod2tolod3.Lod2ToLod3Pipeline \
+  -Dexec.args="input.gml Baukoerpermodule_json/ output/ DGM/Dresden/"
+
+# Oder als JAR
+mvn clean package -q
+java -jar target/lod2-zu-lod3-pipeline.jar \
+  input.gml \
+  Baukoerpermodule_json/ \
+  output/ \
+  [dgm-pfad]          # optional: .asc, .tif, .zip oder Verzeichnis (Mosaik)
+```
+
+### Einzelne Schritte
+
+**Schritt 1: LoD2 → LoD3 Geometrie-Hochstufung**
+```bash
+java -cp target/lod2-zu-lod3-pipeline.jar de.mpsc.lod2tolod3.Lod2ToLod3Promoter input.gml output.gml
+```
+
+**Schritt 2: Keller hinzufuegen**
+```bash
+# Ohne DGM (flache TIC bei H_DGM)
+java -cp target/lod2-zu-lod3-pipeline.jar de.mpsc.lod2tolod3.BasementGenerator input.gml jsonDir/ output.gml
+
+# Mit DGM (bilinear interpolierte TIC) — .asc, .tif, .zip oder Verzeichnis
+java -cp target/lod2-zu-lod3-pipeline.jar de.mpsc.lod2tolod3.BasementGenerator input.gml jsonDir/ output.gml DGM/Dresden/
+```
+
+**Schritt 3: Geschosse unterteilen**
+```bash
+java -cp target/lod2-zu-lod3-pipeline.jar de.mpsc.lod2tolod3.StoreyGenerator input.gml jsonDir/ output.gml
+```
+
+**Schritt 4: Tueren hinzufuegen**
+```bash
+java -cp target/lod2-zu-lod3-pipeline.jar de.mpsc.lod2tolod3.DoorGenerator input.gml jsonDir/ output.gml
+```
+
+**Schritt 5: Fenster hinzufuegen**
+```bash
+java -cp target/lod2-zu-lod3-pipeline.jar de.mpsc.lod2tolod3.WindowGenerator input.gml jsonDir/ output.gml
+```
+
+## Pipeline-Ablauf
+
+Die Pipeline liest die Eingabedatei einmal, verarbeitet jedes Gebaeude im Speicher
+durch alle Schritte, und schreibt das Ergebnis einmal. Keine Zwischendateien.
+
+```
+input.gml
+    |
+    v
+[CityGMLReader — einmaliges Lesen]
+    |
+    +--- pro Building: ---+
+    |  1. LoD2 → LoD3      |
+    |  2. Keller           |
+    |  3. Geschosse        |
+    |  4. Tueren           |
+    |  5. Fenster          |
+    +----------------------+
+    |
+    v
+[CityGMLChunkWriter — einmaliges Schreiben]
+    |
+    v
+output.gml (final)
+```
+
+## Schritt 1: LoD2 → LoD3 Promoter
+
+Stuft alle LoD2-Geometrien automatisch auf LoD3 hoch mittels generischer citygml4j-Basisklassen.
+Die Geometrie selbst wird dabei nicht veraendert – sie wird lediglich vom LoD2-Slot in den LoD3-Slot verschoben.
+
+### Funktionen
+
+- **Generischer Ansatz**: Nutzt `AbstractThematicSurface` und `AbstractSpace`, um automatisch ALLE LoD2-Geometrien zu erfassen
+- **Unterstuetzte Geometrietypen**:
+  - `lod2MultiSurface` → `lod3MultiSurface` (alle BoundarySurfaces)
+  - `lod2Solid` → `lod3Solid` (Building, BuildingPart)
+  - `lod2MultiCurve` → `lod3MultiCurve`
+- **Erfasste Klassen** (automatisch durch Vererbung):
+  - WallSurface, RoofSurface, GroundSurface
+  - CeilingSurface, FloorSurface
+  - OuterCeilingSurface, OuterFloorSurface
+  - InteriorWallSurface, ClosureSurface
+  - Building, BuildingPart
+  - Und alle zukuenftigen Unterklassen!
+- **Namensanpassung**: `LOD2_Wall` → `LOD3_Wall`, `DachTyp_LOD2` → `DachTyp_LOD3`
+- **Metadaten**: Fuegt `lod2ToLod3Promotion` Attribut zu jedem Building hinzu
+
+### Beispiel-Output
+```
+=== LoD2 -> LoD3 Promoter (Geometrie-Hochstufung) ===
+Input:  LoD2_33_416_5656_2_SN.gml
+Output: LoD3_33_416_5656_2_SN.gml
+=== Fertig ===
+Gebaeude verarbeitet: 3801
+Geometrien hochgestuft: 67079
+Namen angepasst: 175676
+Hochgestufte Geometrietypen:
+  - Building.lod2Solid
+  - RoofSurface.lod2MultiSurface
+  - WallSurface.lod2MultiSurface
+  - BuildingPart.lod2Solid
+  - GroundSurface.lod2MultiSurface
+```
+
+## Schritt 2: Keller-Generator (BasementGenerator)
+
+Fuegt Kellergeometrie basierend auf JSON-Baukoerpermodulen hinzu. Erzeugt CityGML-konforme
+GroundSurface-, WallSurface- und CeilingSurface-Elemente mit allen geometrischen Attributen.
+
+Der Keller reicht von H_DGM + heightGr (oberirdischer Anteil) nach unten bis
+H_DGM + heightGr - (BA.height + BA.CeHe). Die Gesamthoehe des Kellers ist
+BA.height + BA.CeHe (Raumhoehe + Deckendicke).
+
+### Semantische Korrekturen
+
+#### GroundSurface-Ersetzung und TerrainIntersectionCurve (TIC)
+
+Bei Gebaeuden mit Keller entsteht ein semantisches Problem: Die originale **GroundSurface**
+aus den LoD2-Daten liegt auf Gelaendeniveau (H_DGM). Die erzeugten Kellerwaende durchstossen
+diese GroundSurface jedoch, da sie von der Kelleroberkante (H_DGM + heightGr) bis zum
+Kellerboden reichen. Die GroundSurface bei H_DGM ist somit geometrisch inkonsistent.
+
+**Loesung nach Kolbe (2009):**
+
+1. **GroundSurface-Ersetzung**: Die originale GroundSurface bei H_DGM wird entfernt.
+   Der Kellerboden wird stattdessen als neue **GroundSurface** (Semantik: physische Bodenplatte
+   des Gebaeudes) erzeugt, anstelle einer FloorSurface.
+
+2. **TerrainIntersectionCurve (TIC)**: Die Information, wo das Gebaeude das Gelaende schneidet,
+   wird als `lod3TerrainIntersectionCurve` (gml:MultiCurve) am Building bzw. BuildingPart
+   dokumentiert. Die TIC ist ein „Interface-Objekt" zwischen Gebaeude und Gelaendemodell
+   (Kolbe, 2009).
+
+```
+Seitenansicht (Kellergebaeude):
+
+     Dach ==================
+          |              |
+     Wand |  Gebaeude    | Wand         } LOD3_Wall
+          |              |
+     ======================== ← H_DGM + heightGr (Kelleroberkante)
+     ||                    ||
+     || K e l l e r r a u m||           } LOD3_BasementWall
+     ||                    ||
+     ======================== ← Kellerboden (neue GroundSurface / "Bodenplatte")
+
+     ~~~~~~~~~~~~~~~~~~~~~~~~ ← H_DGM (Gelaendeniveau)
+         ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+         TerrainIntersectionCurve (3D-Ring bei H_DGM)
+
+     Vorher: GroundSurface bei H_DGM → geometrisch FALSCH (Waende durchstossen sie)
+     Jetzt:  GroundSurface als Bodenplatte, TIC dokumentiert Gelaendeschnitt
+```
+
+**Ohne DGM (Standard):**
+Die TIC wird als flacher 3D-Ring bei Z = H_DGM aus dem GroundSurface-Grundriss erzeugt.
+
+**Mit DGM (optional):**
+Die TIC wird mit bilinearer Interpolation aus dem Gelaendemodell erzeugt — jeder Vertex
+des Grundrisses erhaelt seine tatsaechliche Gelaendehoehe aus dem DGM.
+
+### Algorithmus im Detail
+
+Der Keller-Generator arbeitet pro Gebaeude in folgenden Schritten:
+
+#### 1. Modul-Zuordnung
+
+```
+Building (gml:id="DESNALK0pF0007iT")
+   |
+   +-- gen:stringAttribute name="sst" -> "EFH_2"
+   |
+   +-- JSON-Datei: EFH_2.json -> BA.height = 2.0, BA.CeHe = 0.55, GF.heightGr = 0.8
+```
+
+#### 2. GroundSurface-Polygone sammeln
+
+Alle `bldg:GroundSurface`-Boundaries des Gebaeudes werden gesammelt.
+Ein Gebaeude kann mehrere GroundSurface-Polygone haben (z.B. bei L-foermigen Grundrissen).
+
+```
+Draufsicht: GroundSurface-Polygon (Beispiel mit 4 Eckpunkten)
+
+    P1 (416290.8, 5657417.4, 159.57)
+      +---------------------------+ P4 (416277.5, 5657425.2, 159.57)
+      |                           |
+      |    GroundSurface          |   Alle Punkte auf Z = 159.57
+      |    (Grundplatte)          |   (= Gelaendeniveau, H_DGM)
+      |                           |
+      +---------------------------+
+    P2 (416283.6, 5657405.1, 159.57)  P3 (416270.3, 5657413.0, 159.57)
+```
+
+#### 3. Kellerboden erzeugen (GroundSurface / „Bodenplatte")
+
+Die originale GroundSurface bei H_DGM wird ENTFERNT (da die Kellerwaende sie durchstossen).
+Stattdessen wird der Kellerboden als neue GroundSurface erzeugt — die physische Bodenplatte
+des Gebaeudes. ALLE Punkte des GroundSurface-Polygons werden auf die Kellerboden-Hoehe projiziert:
+
+```
+    basementTotalHeight = BA.height + BA.CeHe = 2.0 + 0.55 = 2.55
+    basementTopZ = H_DGM + heightGr = 159.57 + 0.8 = 160.37
+    basementFloorZ = basementTopZ - basementTotalHeight = 160.37 - 2.55 = 157.82
+```
+
+Das ergibt die neue GroundSurface (Bodenplatte) - ein zum Grundriss identisches Polygon, nur tiefer:
+
+```
+    Seitenansicht:
+
+    P1 ========================= P2        Z = 160.37 (Keller-Oberkante)
+    ||                           ||             = H_DGM + heightGr
+    ||    Kellerraum             ||        BA.height + BA.CeHe = 2.55 m
+    ||                           ||
+    P1'========================= P2'       Z = 157.82 (GroundSurface / Bodenplatte)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+         LOD3_Ground (STRUKTUR = "Bodenplatte")
+```
+
+Der Kellerboden ist eine `bldg:GroundSurface` mit `gml:name = "LOD3_Ground"` und Attribut
+`STRUKTUR = "Bodenplatte"`. Die Gelaendeschnittlinie wird zusaetzlich als
+TerrainIntersectionCurve (TIC) dokumentiert.
+
+#### 4. Kellerwaende erzeugen (WallSurface)
+
+Fuer JEDE Kante des GroundSurface-Polygons wird ein Wand-Rechteck erzeugt.
+Die Oberkante liegt bei H_DGM + heightGr, die Unterkante bei basementFloorZ.
+Der Schlusspunkt des Polygons wird vorher entfernt (P1==Plast bei geschlossenen Polygonen).
+
+```
+Fuer Kante P1 -> P2:
+
+    A = P1 (oben, projiziert)           B = P2 (oben, projiziert)
+    (416290.8, 5657417.4, 160.37)   (416283.6, 5657405.1, 160.37)
+      +-------------------------------+       Z = 160.37 (H_DGM + heightGr)
+      |                               |
+      |        Kellerwand             |       Hoehe = BA.height + BA.CeHe = 2.55 m
+      |        (WallSurface)          |
+      |                               |
+      +-------------------------------+       Z = 157.82 (Kellerboden)
+    A'= P1' (unten)                B'= P2' (unten)
+    (416290.8, 5657417.4, 157.82)   (416283.6, 5657405.1, 157.82)
+
+    Polygon-Punkte: A -> B -> B' -> A' -> A (geschlossen)
+```
+
+Jede Kellerwand ist eine `bldg:WallSurface` mit `gml:name = "LOD3_BasementWall"`.
+
+#### 5. Gesamtbild (3D-Ansicht)
+
+```
+    Draufsicht:                      Seitenansicht (Schnitt):
+
+    P1 -------- P4                   Dach ==================
+    |            |                        |              |
+    | GroundSurf |                   Wand |  Gebaeude    | Wand    } LOD3_Wall
+    |            |                        |              |
+    P2 -------- P3                   ===========================   H_DGM + heightGr
+                                     ||                        ||
+                                     || K e l l e r r a u m   ||  } LOD3_BasementWall
+                                     ||   (teilw. oberirdisch) ||
+                                     ============================  LOD3_Ground (Bodenplatte)
+                                     ^                          ^
+                                     Z = 160.37 - 2.55          Z = 160.37
+                                       = 157.82                   (H_DGM+heightGr)
+
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~  H_DGM (TIC-Ring)
+
+    Bei 4 Kanten entstehen:
+    - 1x GroundSurface (Bodenplatte, ersetzt Original-GroundSurface)
+    - 4x WallSurface   (Kellerwaende, eine pro Kante)
+    - 1x CeilingSurface (Kellerdecke)
+    - 1x TerrainIntersectionCurve (3D-Ring bei H_DGM)
+    Original-GroundSurface bei H_DGM wird entfernt.
+```
+
+### Attribute der Keller-Elemente
+
+Alle neuen Surfaces erhalten die gleichen Attribut-Typen wie die bestehenden Surfaces.
+Alle Werte sind `gen:stringAttribute` (konsistent mit den Input-Daten).
+
+#### GroundSurface (Bodenplatte) Attribute
+
+| Attribut | Wert | Beschreibung |
+|----------|------|--------------|
+| `gml:name` | `LOD3_Ground` | GroundSurface des Gebaeudes (physische Bodenplatte) |
+| `gml:id` | `Face_{buildingId}_BA_Ground_{n}` | Eindeutige ID |
+| `BldgFaceID` | `{buildingId}_BA_Ground_{n}` | Face-Identifikator |
+| `Z_MIN_ASL` | z.B. `157.07` | Absolute Hoehe ueber Meeresspiegel |
+| `Z_Min` | z.B. `-2.5` | Relative Hoehe zu H_DGM (negativ = unter Gelaende) |
+| `FACEAREA` | z.B. `220.688` | Flaeche in m2 (Gauss'sche Trapezformel) |
+| `STRUKTUR` | `Bodenplatte` | Semantische Klassifikation (physische Bodenplatte) |
+| `Lage` | `belowGround` | Keller-Lage |
+
+#### WallSurface (Kellerwand) Attribute
+
+| Attribut | Wert | Beschreibung |
+|----------|------|--------------|
+| `gml:name` | `LOD3_BasementWall` | Analog zu `LOD3_Wall` |
+| `gml:id` | `Face_{buildingId}_BW_{n}` | Eindeutige ID |
+| `BldgFaceID` | `{buildingId}_BW_{n}` | Face-Identifikator |
+| `Z_MAX_ASL` | z.B. `160.37` | Oberkante absolut (= H_DGM + heightGr) |
+| `Z_MIN_ASL` | z.B. `157.82` | Unterkante absolut (= Kellerboden) |
+| `Z_Max` | z.B. `0.8` | Oberkante relativ zu H_DGM (= heightGr) |
+| `Z_Min` | z.B. `-1.75` | Unterkante relativ zu H_DGM |
+| `FACEAREA` | z.B. `35.676` | Wandflaeche in m2 |
+| `NORMAL_AZI` | z.B. `120.673` | Azimut der Wandnormalen in Grad |
+| `NORMAL_H` | `0` | Neigung der Normalen (0 = vertikal) |
+| `STRUKTUR` | `Kellerwand` | Semantische Klassifikation |
+| `Innenwand` | `0` | Aussenwand (keine Innenwand) |
+| `Lage` | `belowGround` | Keller-Lage |
+| `WindowPreference` | z.B. `ME2_BA` | Von Original-Wand uebernommen (fuer Fenstergeneration) |
+
+#### Building-Attribute
+
+| Attribut | Typ | Wert |
+|----------|-----|------|
+| `bldg:storeysBelowGround` | Natives CityGML-Element | `1` |
+| `LoD3_Basement` | gen:stringAttribute | `generated` |
+
+### Berechnungsformeln
+
+#### FACEAREA (Kellerboden) - Gauss'sche Trapezformel (Shoelace)
+
+```
+A = 0.5 * |SUM(x_i * y_{i+1} - x_{i+1} * y_i)|
+
+Beispiel mit 4 Eckpunkten (P1..P4):
+A = 0.5 * |  (x1*y2 - x2*y1)
+           + (x2*y3 - x3*y2)
+           + (x3*y4 - x4*y3)
+           + (x4*y1 - x1*y4) |
+```
+
+#### FACEAREA (Kellerwand) - Newell's Method (3D-Polygon-Flaeche)
+
+```
+Funktioniert fuer ALLE Polygon-Formen (Dreiecke, Rechtecke, Fuenfecke, etc.)
+
+Algorithmus (Newell's Method):
+1. Flaechennormale berechnen durch Kreuzprodukt-Summe:
+   N.x = Summe( (y_i - y_{i+1}) * (z_i + z_{i+1}) )
+   N.y = Summe( (z_i - z_{i+1}) * (x_i + x_{i+1}) )
+   N.z = Summe( (x_i - x_{i+1}) * (y_i + y_{i+1}) )
+
+2. Flaeche = halbe Laenge des Normalenvektors:
+   FACEAREA = 0.5 * sqrt(N.x^2 + N.y^2 + N.z^2)
+
+Fuer Rechtecke (4P) ist das Ergebnis identisch mit Breite*Hoehe.
+Fuer Giebel (5P), Walm (6P), Dreiecke (3P), etc. wird die
+tatsaechliche 3D-Flaeche des planaren Polygons berechnet.
+```
+
+#### NORMAL_AZI - Azimut der Wandnormalen
+
+```
+Fuer eine Kante A -> B:
+
+  Kantenrichtung:  dx = B.x - A.x,  dy = B.y - A.y
+  Wandnormale:     nx = -dy,         ny = dx
+
+  Azimut = atan2(nx, ny) * 180/PI        (Ergebnis: -180..180)
+  if (Azimut < 0) Azimut += 360          (Ergebnis:    0..360)
+
+  Kompassrichtung: 0=Nord, 90=Ost, 180=Sued, 270=West
+
+      N (0/360)
+       |
+  W ---+--- O (90)
+       |
+     S (180)
+```
+
+#### Z_Max / Z_Min - Relative Hoehen
+
+```
+Z_Max = Z_MAX_ASL - H_DGM     (Oberkante relativ zum Gelaende)
+Z_Min = Z_MIN_ASL - H_DGM     (Unterkante relativ zum Gelaende)
+
+Beispiel (Kellerwand):
+  Z_MAX_ASL = 159.57    (Gelaendeniveau)
+  H_DGM     = 159.57    (Gelaendehoehe aus Building-Attribut)
+  Z_Max     = 0.0       (Oberkante = Gelaende -> 0)
+  Z_Min     = -2.5      (Unterkante = 2.5m unter Gelaende)
+```
+
+### Beispiel-Output (XML)
+
+```xml
+<!-- GroundSurface (Bodenplatte — ersetzt die originale GroundSurface bei H_DGM) -->
+<bldg:boundedBy>
+  <bldg:GroundSurface gml:id="Face_DESNALK0pF0007iT_BA_Ground_1">
+    <gml:name>LOD3_Ground</gml:name>
+    <gen:stringAttribute name="BldgFaceID">
+      <gen:value>DESNALK0pF0007iT_BA_Ground_1</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="Z_MIN_ASL">
+      <gen:value>157.07</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="Z_Min">
+      <gen:value>-2.5</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="FACEAREA">
+      <gen:value>220.68799</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="STRUKTUR">
+      <gen:value>Bodenplatte</gen:value>
+    </gen:stringAttribute>
+    <bldg:lod3MultiSurface>
+      <gml:MultiSurface>
+        <gml:surfaceMember>
+          <gml:Polygon>
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="3">
+                  416290.843 5657417.357 157.07
+                  416283.563 5657405.083 157.07
+                  416270.262 5657412.972 157.07
+                  416277.542 5657425.246 157.07
+                  416290.843 5657417.357 157.07
+                </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gml:surfaceMember>
+      </gml:MultiSurface>
+    </bldg:lod3MultiSurface>
+  </bldg:GroundSurface>
+</bldg:boundedBy>
+
+<!-- WallSurface (Kellerwand) -->
+<bldg:boundedBy>
+  <bldg:WallSurface gml:id="Face_DESNALK0pF0007iT_BW_1">
+    <gml:name>LOD3_BasementWall</gml:name>
+    <gen:stringAttribute name="BldgFaceID">
+      <gen:value>DESNALK0pF0007iT_BW_1</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="Z_MAX_ASL">
+      <gen:value>159.57</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="Z_MIN_ASL">
+      <gen:value>157.07</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="Z_Max">
+      <gen:value>0</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="Z_Min">
+      <gen:value>-2.5</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="FACEAREA">
+      <gen:value>35.67645</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="NORMAL_AZI">
+      <gen:value>120.67318</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="NORMAL_H">
+      <gen:value>0</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="STRUKTUR">
+      <gen:value>Kellerwand</gen:value>
+    </gen:stringAttribute>
+    <gen:stringAttribute name="Innenwand">
+      <gen:value>0</gen:value>
+    </gen:stringAttribute>
+    <bldg:lod3MultiSurface>
+      <gml:MultiSurface>
+        <gml:surfaceMember>
+          <gml:Polygon>
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="3">
+                  416290.843 5657417.357 159.57
+                  416283.563 5657405.083 159.57
+                  416283.563 5657405.083 157.07
+                  416290.843 5657417.357 157.07
+                  416290.843 5657417.357 159.57
+                </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gml:surfaceMember>
+      </gml:MultiSurface>
+    </bldg:lod3MultiSurface>
+  </bldg:WallSurface>
+</bldg:boundedBy>
+
+<!-- Building erhaelt natives CityGML-Element -->
+<bldg:storeysBelowGround>1</bldg:storeysBelowGround>
+
+<!-- TerrainIntersectionCurve (3D-Ring bei Gelaendeniveau) -->
+<bldg:lod3TerrainIntersection>
+  <gml:MultiCurve srsName="urn:adv:crs:ETRS89_UTM33*DE_DHHN2016_NH" srsDimension="3">
+    <gml:curveMember>
+      <gml:LineString>
+        <gml:posList srsDimension="3">
+          416290.843 5657417.357 159.57
+          416283.563 5657405.083 159.57
+          416270.262 5657412.972 159.57
+          416277.542 5657425.246 159.57
+          416290.843 5657417.357 159.57
+        </gml:posList>
+      </gml:LineString>
+    </gml:curveMember>
+  </gml:MultiCurve>
+</bldg:lod3TerrainIntersection>
+```
+
+## Schritt 3: Geschoss-Generator
+
+Unterteilt Gebaeude in Geschosse basierend auf den Hoehen aus den JSON-Baukoerpermodulen.
+
+### Funktionen
+
+- Verwendet die Geschoss-Hoehen aus den JSON-Modulen:
+  - `BA`: Basement (Keller) — Geschoss-Tag: `BA`
+  - `GF`: Ground Floor (Erdgeschoss) — Geschoss-Tag: `GF`
+  - `UF`: Upper Floor (Obergeschoss) — Geschoss-Tags: `UF_1`, `UF_2`, `UF_3`, ...
+- **Dynamische UF-Berechnung**: `storeysAboveGround` aus CityGML wird **IGNORIERT**.
+  Die Anzahl der Obergeschosse (UFs) wird dynamisch berechnet: so viele UFs wie in die
+  Gebaeudehoehe zwischen GF-Decke und Traufe passen.
+- **Keller-Overlap-Vermeidung**: Wandbereiche unterhalb `egFloorZ` (H_DGM + heightGr)
+  werden verworfen, damit keine Ueberlappung mit den Kellerwaenden entsteht.
+- **Wand-Schnitt mit Sutherland-Hodgman-Algorithmus**:
+  - Schneidet ALLE Wandformen geschossweise (nicht nur Rechtecke!)
+  - Unterstuetzte Polygon-Formen: Dreiecke (3P), Rechtecke (4P), Giebel (5P), Walm (6P), komplexe Formen (7+ P)
+  - Iteratives Schneiden von unten nach oben an den Geschossgrenzen
+- Erstellt fuer jedes Geschoss:
+  - **FloorSurface** (Boden des Geschosses)
+  - **CeilingSurface** (Decke des Geschosses)
+- **Flachdach-Erkennung**: Bei Flachdaechern (First - Traufe < 0.30m) wird keine CeilingSurface am obersten Geschoss erzeugt, da die RoofSurface bereits die Decke bildet
+- **Mischdach-Erkennung**: Bei Gebaeuden mit gemischtem Dach (Walm/Satteldach + Flachdach) wird die CeilingSurface am obersten Geschoss nur unter den geneigten Dachflaechen erzeugt, nicht unter dem Flachdach-Anteil (536 betroffene Gebaeude im Testdatensatz)
+- **Fitzelchen-Schutz**: Wenn die Resthoehe bis zur Traufe unter `MIN_STOREY_HEIGHT` (1.20m) liegt,
+  wird kein neues Geschoss erzeugt, sondern das vorherige Geschoss bis zur Traufe erweitert.
+  - **Sonderregel Flachdach**: Wenn durch den Fitzelchen-Merge das resultierende Geschoss
+    ueber `MAX_STOREY_HEIGHT_FLACHDACH` (4.0m) Hoehe bekommen wuerde, wird das Fitzelchen
+    stattdessen als eigenes kurzes Geschoss beibehalten. Damit werden unrealistisch hohe
+    Geschosse (>4m) auf Flachdaechern vermieden.
+  - Diese Sonderregel gilt **nur fuer Flachdaecher** (First - Traufe < 0.30m).
+    Bei geneigten Daechern (Sattel-/Walmdach) bleibt das Merge-Verhalten unveraendert,
+    da dort die variierende Wandhoehe durch die Dachform natuerlich ist.
+- **Polygon-basiert**: Nutzt die tatsaechlichen GroundSurface-Polygone als Grundriss (nicht Bounding Box)
+- **Multi-Polygon-Unterstuetzung**: Verarbeitet Gebaeude mit mehreren Grundriss-Polygonen korrekt
+- **GroundSurface-Erhaltung**: Original-GroundSurface wird mit Attribut `Original_GroundSurface=preserved` markiert (ausgenommen BA-Bodenplatten mit `STRUKTUR=Bodenplatte` vom BasementGenerator)
+- Fuegt `storeysGenerated` Attribut zu jedem Building hinzu
+- Aktualisiert `storeysAboveGround` entsprechend der dynamisch berechneten Geschossanzahl
+- **lod3Solid Shell-Rebuild**: Nach der Verarbeitung wird die lod3Solid-Shell komplett neu aufgebaut (s. [lod3Solid Shell-Rebuild](#lod3solid-shell-rebuild))
+
+### Benennung / Polygon-IDs
+
+| Typ | Format | Beispiel |
+|-----|--------|----------|
+| Wand-Segment | `Face_{OrigPolyId}_{StoreyTag}_{LaufendeNr}` | `Face_000BVXQ_0_1_GF_1` |
+| Floor | `Face_{BuildingId}_{StoreyTag}_Floor_{PolyIdx}` | `Face_DESNALK0pF001iWz_GF_Floor_1` |
+| Ceiling | `Face_{BuildingId}_{StoreyTag}_Ceiling_{PolyIdx}` | `Face_DESNALK0pF001iWz_UF_1_Ceiling_1` |
+| Slab-Geometrie | `Slab_{BuildingId}_{StoreyTag}_{PolyIdx}` | `Slab_DESNALK0pF001iWz_GF_1` |
+| Keller-Wand | `Face_{BuildingId}_BA_Wall_{Nr}` | `Face_DESNALK0pF0007iT_BA_Wall_1` |
+| Keller-Boden (GroundSurface) | `Face_{BuildingId}_BA_Ground_{Nr}` | `Face_DESNALK0pF0007iT_BA_Ground_1` |
+| Keller-Decke | `Face_{BuildingId}_BA_Ceiling_{Nr}` | `Face_DESNALK0pF0007iT_BA_Ceiling_1` |
+
+### Geschossdecken: XLink-Referenzen statt doppelter Geometrie
+
+#### Problem: Doppelte Polygone an Geschossgrenzen
+
+An jeder Geschossgrenze liegen die **CeilingSurface** des unteren Geschosses und die
+**FloorSurface** des oberen Geschosses auf exakt derselben Z-Hoehe mit identischem
+Grundriss. Naiv implementiert bedeutet das: zwei Polygon-Definitionen mit identischen
+Koordinaten — eine mit CCW-Winding (Floor, Normale nach oben) und eine mit CW-Winding
+(Ceiling, Normale nach unten).
+
+**Zwei Optionen standen zur Wahl:**
+
+| | Option A: Doppelte Polygone | Option B: XLink-Referenz |
+|---|---|---|
+| **Geometrie** | 2× gleiche Koordinaten, unterschiedliche Orientierung | 1× Polygon mit `gml:id`, 1× `xlink:href` |
+| **Dateigroesse** | Groesser (jede Koordinate doppelt) | Kleiner (~50% weniger Slab-Daten) |
+| **Konsistenz** | Risiko: Floor/Ceiling koennten geometrisch auseinanderlaufen | Garantiert identisch (gleiche Quelle) |
+| **CityGML-konform** | Ja, aber redundant | Ja — XLink ist der vorgesehene GML-Mechanismus fuer geteilte Geometrie |
+| **Orientierung** | Explizit unterschiedlich pro Surface | Semantischer Typ (FloorSurface/CeilingSurface) ist autoritativ |
+
+#### Entscheidung: XLink (Option B)
+
+Wir verwenden **XLink-Referenzen** (`xlink:href`) fuer geteilte Geschossdecken. Gruende:
+
+1. **„Geometry once, semantics twice"**: Das Polygon wird einmal als echte Geometrie definiert
+   (mit `gml:id`), und von beiden Surfaces referenziert. Die Semantik (Floor vs. Ceiling) wird
+   durch den CityGML-Elementtyp bestimmt, nicht durch die Polygon-Orientierung.
+
+2. **Datensparsamkeit**: Bei ~5.700 Geschossen werden tausende doppelte Polygon-Koordinaten
+   eingespart.
+
+3. **Topologische Konsistenz**: Es ist physisch unmoeglich, dass Floor und Ceiling einer
+   Geschossgrenze geometrisch auseinanderlaufen — sie verweisen auf dasselbe Objekt.
+
+4. **CityGML-kanonisch**: XLink-Referenzen in `gml:surfaceMember` sind ein Standard-Mechanismus
+   in GML 3.1/CityGML 1.0. Die citygml4j-Bibliothek unterstuetzt dies ueber
+   `SurfaceProperty(String href)` nativ.
+
+5. **Polygon-Orientierung ist kein Problem**: Fuer `lod3MultiSurface` (nicht Solid/B-Rep) ist
+   die Flaechennormale informativ, nicht topologisch bindend. Alle gaengigen CityGML-Viewer
+   (FME, 3DCityDB, citygml4j) nutzen den semantischen Typ zur Interpretation.
+
+#### Zuordnungsschema
+
+```
+BA  Ceiling → inline, gml:id="Slab_{id}_BA_1"           ← Geometrie definiert
+GF  Floor   → xlink:href="#Slab_{id}_BA_1"               ← Referenz (shared!)
+GF  Ceiling → inline, gml:id="Slab_{id}_GF_1"           ← Geometrie definiert
+UF_1 Floor  → xlink:href="#Slab_{id}_GF_1"               ← Referenz (shared!)
+UF_1 Ceiling→ inline, gml:id="Slab_{id}_UF_1_1"         ← Geometrie definiert
+UF_2 Floor  → xlink:href="#Slab_{id}_UF_1_1"             ← Referenz (shared!)
+...
+```
+
+**Sonderfaelle:**
+- **GF Floor ohne Keller**: Kein vorhergehendes Ceiling → inline (eigene Geometrie)
+- **Oberstes Ceiling bei Flachdach**: Wird nicht erzeugt (RoofSurface = Decke) → kein XLink
+- **BA Boden**: Kein Floor darunter → immer inline
+- **Mischdach-Ceiling**: Projizierte Dachpolygone → immer inline (andere Geometrie)
+
+### Schwellwerte (StoreyGenerator)
+
+| Konstante | Wert | Beschreibung |
+|-----------|------|--------------|
+| `CUT_TOLERANCE` | 0.05m | Mindesthoehe fuer Schnitt-Ergebnisse, verhindert degenerierte Geometrien |
+| `MIN_STOREY_HEIGHT` | 1.20m | Fitzelchen-Schwelle: Resthoehe unter diesem Wert wird ins vorherige Geschoss gemerged |
+| `MAX_STOREY_HEIGHT_FLACHDACH` | 4.00m | Nur Flachdach: Wenn Merge-Ergebnis diesen Wert uebersteigt, wird stattdessen ein kurzes Fitzelchen-Geschoss erzeugt |
+| Flachdach-Erkennung | First - Traufe < 0.30m | Schwelle fuer Flachdach vs. geneigtes Dach |
+
+### Sutherland-Hodgman: Wandschnitt fuer beliebige Polygone
+
+Der Wandschnitt verwendet den Sutherland-Hodgman-Algorithmus, um **beliebige** Wand-Polygone
+an einer horizontalen Ebene (Z-Hoehe) zu teilen. Das ist ein generischer Polygon-Clipping-
+Algorithmus, der fuer jede Polygon-Form funktioniert.
+
+#### Algorithmus im Detail
+
+```
+Eingabe: Polygon P mit n Eckpunkten, Schnitthoehe zCut, Toleranz
+
+Fuer jeden Eckpunkt P[i]:
+  1. Klassifiziere P[i] als:
+     - UNTERHALB: P[i].z < zCut - eps
+     - OBERHALB:  P[i].z > zCut + eps
+     - AUF:       |P[i].z - zCut| <= eps  (liegt auf der Schnittebene)
+
+  2. Punkt zuordnen:
+     - UNTERHALB → nur zum unteren Polygon
+     - OBERHALB  → nur zum oberen Polygon
+     - AUF       → zu BEIDEN Polygonen (liegt auf der gemeinsamen Kante)
+
+  3. Kante P[i] → P[i+1] pruefen:
+     - Wenn die Kante die Schnittebene kreuzt (einer oben, einer unten):
+       → Schnittpunkt per linearer Interpolation berechnen:
+         t = (zCut - P[i].z) / (P[i+1].z - P[i].z)
+         I.x = P[i].x + t * (P[i+1].x - P[i].x)
+         I.y = P[i].y + t * (P[i+1].y - P[i].y)
+         I.z = zCut
+       → Schnittpunkt I zu BEIDEN Polygonen hinzufuegen
+
+Ausgabe: [unteres Polygon, oberes Polygon]
+```
+
+#### Beispiele fuer verschiedene Wandformen
+
+```
+Rechteck (4 Punkte) → Standard-Wand:
+  D ─── C              D ─── C    oberes Polygon (Rechteck)
+  │     │    zCut →     E ─── F
+  │     │              E ─── F    unteres Polygon (Rechteck)
+  A ─── B              A ─── B
+
+Fuenfeck (5 Punkte) → Giebelwand:
+       C                    C     oberes Polygon (Dreieck)
+      ╱ ╲        zCut →   I1 ── I2
+    D     B              I1 ── I2 unteres Polygon (Rechteck)
+    │     │
+    E ─── A              E ─── A
+
+Sechseck (6 Punkte) → Walmdach-Wand:
+   D ─── C              D ─── C    oberes Polygon (Trapez)
+  ╱       ╲   zCut →   I1     I2
+ E         B           I1     I2   unteres Polygon (Rechteck)
+ F ─────── A           F ──── A
+
+Dreieck (3 Punkte) → Giebelspitze:
+       B                    B      oberes Polygon (Dreieck)
+      ╱ ╲     zCut →     I1 ── I2
+    C     A              (unteres Polygon nur wenn Punkte unterhalb)
+```
+
+#### Empirische Verteilung der Wandformen im Testdatensatz
+
+Analyse von 100.837 Wandpolygonen aus dem LoD3-Output:
+
+| Punkte | Anzahl | Anteil | Typische Form |
+|--------|--------|--------|---------------|
+| 3      | 374    | 0.4%   | Dreiecke (Giebelspitzen) |
+| 4      | 91.152 | 90.4%  | Rechtecke (Standard-Waende) |
+| 5      | 2.936  | 2.9%   | Fuenfecke (Giebelwaende) |
+| 6      | 3.940  | 3.9%   | Sechsecke (Walmdach-Waende) |
+| 7      | 792    | 0.8%   | Komplexe Dachverschneidungen |
+| 8      | 774    | 0.8%   | L-Formen, Stufen |
+| 9-34   | 869    | 0.9%   | Gauben, Erker, komplexe Dachlandschaften |
+
+→ **Vorher**: Nur 90.4% der Waende konnten geschnitten werden (4-Punkt-Rechtecke).
+→ **Jetzt**: 100% werden geschnitten (Sutherland-Hodgman fuer alle Formen).
+
+### Geschoss-Berechnung und Wandschnitt
+
+Die Hoehen werden aus den JSON-Modulen gelesen und gestapelt:
+
+```
+                                    Traufe (Z_MIN RoofSurface)
+          ╱╲  ╱╲  ╱╲               ↓
+         ╱  ╲╱  ╲╱  ╲  ←Dach      ============================
+         |   |       |             |                          |
+         |   | UF_n  |             | letztes UF bis Traufe    |
+         |   |       |             |                          |
+         +===+===+===+  <- UF_n   ============================
+         |   |       |             |                          |
+         |   | UF_1  |             | Ceiling + Floor an jeder |
+         |   |       |             | Geschossgrenze           |
+         +===+===+===+  <- UF_1   ============================
+         |   |       |             |                          |
+         |   |  GF   |             | GF-Hoehe = GF.height     |
+         |   |       |             |          + GF.CeHe        |
+    -----+===+===+===+-----       ============================ <- H_DGM + heightGr
+         ||          ||           ||                          ||
+         || Keller   ||           || BA.height + BA.CeHe      ||
+         || (BA)     ||           || (Schritt 2)              ||
+         +============+           ============================  <- Kellerboden
+```
+
+**Regeln:**
+- Startpunkt fuer alles: `heightGr` (GF.heightAboveGround, Default: 0)
+- GF beginnt bei egFloorZ (= H_DGM + heightGr)
+- GF-Hoehe = GF.height + GF.CeHe aus JSON
+- UF-Hoehe = UF.height + UF.CeHe aus JSON
+- **Dynamisch**: Anzahl UFs wird aus der verfuegbaren Hoehe berechnet (NICHT aus storeysAboveGround!)
+- Letztes Geschoss endet exakt an der Traufe
+- Geschosse unter 1.20m werden uebersprungen (Fitzelchen-Schutz)
+- Wandbereiche unterhalb egFloorZ werden verworfen (Keller-Overlap-Vermeidung)
+- **Flachdach**: Keine CeilingSurface am obersten Geschoss wenn First-Traufe < 0.30m
+- **Mischdach**: CeilingSurface nur unter geneigten Dachflaechen (projizierte Dach-Polygone)
+
+**Wandschnitt:**
+- Jede Wand wird an allen Geschossgrenzen geschnitten (Sutherland-Hodgman)
+- Iteratives Schneiden von unten nach oben
+- Ergebnis: Ein Wandsegment pro Geschoss mit eigenem Geschoss-Tag
+- Bei Schnittfehler: Wand bleibt ungeteilt, erhaelt nur Geschoss-Tag
+
+### Beispiel-Output
+```
+=== Geschoss-Generator ===
+Input:  LoD3_building.gml
+JSON:   Baukoerpermodule_json/
+Output: LoD3_building_storeys.gml
+=== Fertig ===
+Gebaeude verarbeitet: 3801
+Geschosse erstellt: 5719
+Wand-Segmente erstellt: 59287
+Boeden erstellt: 5768
+Decken erstellt: 6642
+```
+
+### lod3Solid Shell-Rebuild
+
+#### Problem
+
+Der Promoter (Schritt 1) kopiert den `lod2Solid` 1:1 als `lod3Solid`. Die darin enthaltene
+`CompositeSurface`-Shell referenziert ueber `xlink:href` die `gml:id`s aller Polygon-Geometrien
+der BoundarySurfaces. In den folgenden Pipeline-Schritten werden jedoch Flaechen entfernt,
+ersetzt und neu erzeugt:
+
+- **BasementGenerator (Schritt 2)**: Entfernt die originale GroundSurface (und damit deren `gml:id`), 
+  fuegt neue Keller-Waende, Boden und Decke hinzu.
+- **StoreyGenerator (Schritt 3)**: Entfernt originale WallSurfaces, erstellt neue 
+  Wand-Segmente pro Geschoss mit neuen `gml:id`s, erzeugt Floor-/CeilingSurfaces.
+
+Dadurch entstehen **dangling references** (Verweise auf nicht mehr existierende Polygone)
+und neue Polygone fehlen im Solid. Im Testdatensatz (3801 Gebaeude): 24.580 dangling von
+67.605 Referenzen gesamt.
+
+#### Loesung: `CityGmlUtils.rebuildSolidShell()`
+
+Die Methode baut die Shell des `lod3Solid` komplett neu auf:
+
+1. **Alle aktuellen Polygon-IDs sammeln**: Iteriert ueber alle `BoundarySurface`s des
+   Gebaeudes/Parts und sammelt die `gml:id`s aller inline-Polygone (XLink-Referenzen
+   wie z.B. bei Geschossdecken werden uebersprungen, da das referenzierte Polygon bereits
+   ueber die CeilingSurface gezaehlt wird).
+2. **Auto-ID-Vergabe**: Polygone ohne `gml:id` erhalten automatisch eine ID nach dem Schema
+   `Poly_<surfaceId>` (z.B. `Poly_K0pF001gmt_Wall_BA_N` fuer `Face_K0pF001gmt_Wall_BA_N`).
+3. **Shell ersetzen**: Die vorhandenen `surfaceMember`-Eintraege werden geloescht und durch
+   neue `xlink:href`-Referenzen auf die gesammelten IDs ersetzt.
+
+#### Platzierung im Code
+
+Der Aufruf erfolgt in `StoreyGenerator.processBuilding()` **nach** jedem
+`processAbstractBuilding()`-Aufruf — bewusst auf dieser Ebene, nicht innerhalb von
+`processAbstractBuilding()` selbst. Grund: Es gibt Randfaelle, bei denen der StoreyGenerator
+vorzeitig abbricht (z.B. fehlende Traufe), der BasementGenerator aber bereits Boundaries
+geaendert hat. Durch den Aufruf auf `processBuilding()`-Ebene wird die Shell **immer**
+korrekt neu aufgebaut.
+
+```java
+// StoreyGenerator.processBuilding()
+processAbstractBuilding(part, sst, hDgm, params, stats);
+CityGmlUtils.rebuildSolidShell(part);   // Shell immer neu aufbauen
+
+processAbstractBuilding(building, sst, hDgm, params, stats);
+CityGmlUtils.rebuildSolidShell(building);
+```
+
+#### Ergebnis
+
+Nach dem Rebuild: **134.011 gueltige Referenzen, 0 dangling, 0 unreferenzierte Polygone**.
+
+## Schritt 4: Tuer-Generator (DoorGenerator)
+
+Erzeugt Tueren (DoorSurface) an den Erdgeschoss-Wandsegmenten (GF-WallSurfaces).
+Die Tueren werden als `DoorSurface`-Elemente (`FillingSurface`) an den WallSurfaces verankert.
+Das Wandpolygon wird so modifiziert, dass die Tueroeffnungen geometrisch korrekt aus dem
+aeusseren Ring ausgeschnitten werden.
+
+### Funktionen
+
+- Liest `DoorCount`-Attribut von GF-WallSurfaces (gesetzt aus Building-Preferences)
+- Liest Tuerparameter aus JSON-Baukoerpermodulen (`GF.door`)
+- Erzeugt `DoorSurface`-Elemente als FillingSurface der WallSurface
+- Modifiziert das Wandpolygon (Tueroeffnung wird aus dem aeusseren Ring ausgeschnitten)
+- Aktualisiert FACEAREA der Wand und baut Solid-Shell neu auf
+- **DoorCount nur an GF-Segmenten**: Der StoreyGenerator propagiert das `DoorCount`-Attribut
+  nur an Wandsegmente mit Geschoss-Tag `GF`, nicht an OG- oder Keller-Waende
+
+### Tuer-Parameter (aus JSON)
+
+| JSON-Feld | ModuleParameters | Beschreibung |
+|-----------|-----------------|---------------|
+| `GF.door.DoHe` | `doorHeight` | Tuerhoehe in m |
+| `GF.door.DoLen` | `doorWidth` | Tuerbreite in m |
+| `GF.door.HDistDoWa` | `hDistDoorWall` | Abstand erste Tuer vom linken Wandrand in m (Default: 0.5) |
+
+### DoorCount-Semantik
+
+| Wert | Bedeutung |
+|------|-----------|
+| `0` | Keine Tuer an dieser Wand |
+| `1`, `2`, ... | Anzahl Tueren |
+| `-1` | Hintertuer (1 Tuer + Attribut `Hintertuer=true`) |
+
+### Algorithmus im Detail
+
+Der DoorGenerator arbeitet pro GF-WallSurface in folgenden Schritten:
+
+#### 1. Unterkante der Wand ermitteln
+
+Die Unterkante wird als laengste Kante bei `zMin` identifiziert — zwei aufeinanderfolgende
+Ring-Punkte deren Z-Wert innerhalb 1 cm von `zMin` liegt. Die Unterkante kann dabei ueber
+die Array-Grenze des offenen Polygon-Rings wrappen (z.B. bei Fuenfeck-Giebel, wo der
+letzte Punkt und der erste Punkt die Basiskante bilden).
+
+```
+Beispiel: Giebel-Fuenfeck (CCW von aussen)
+
+       C (zMax=First)
+      / \
+     /   \
+    D     B (zMax=Traufe)
+    |     |
+    E --- A (zMin=GF-Unterkante)
+
+Ring (open): [A, B, C, D, E]
+Unterkante: E→A = Index 4 → Index 0 (Wrap-Around!)
+edgeStartIdx=4, edgeEndIdx=0
+```
+
+#### 2. Tuer-Positionen berechnen
+
+```
+Wand-Unterkante (Start → Ende):
+|--HDistDoWa--|--Tuer1--|--spacing--|--Tuer2--|--spacing--|
+```
+
+- **Erste Tuer**: Bei `HDistDoWa` vom Start der Unterkante
+- **Weitere Tueren**: Gleichmaessig im verbleibenden Wandbereich verteilt
+- **Abbruchkriterien**:
+  - Wandlaenge < HDistDoWa + doorWidth → Wand wird uebersprungen
+  - Spacing zwischen Tueren < 10 cm → Wand wird uebersprungen
+  - Tuerhoehe + 5 cm Sockel > Wandhoehe → Wand wird uebersprungen
+
+#### 3. Tuer-Geometrie erzeugen
+
+Jede Tuer wird als Rechteck (BL, BR, TR, TL) auf der Wandebene berechnet:
+- **Sockelloehe**: 5 cm ueber Wandunterkante (vermeidet kollineare Punkte auf der Basiskante)
+- **doorBottomZ**: zMin + 0.05 m
+- **doorTopZ**: zMin + 0.05 m + doorHeight
+- **Horizontale Position**: entlang der Unterkanten-Richtung, Offset per `HDistDoWa`
+
+#### 4. Wandpolygon modifizieren
+
+Der aeussere Ring des Wandpolygons wird so modifiziert, dass er um jede Tueroeffnung
+herum verlaeuft. Dabei werden **Ankerpunkte auf der Unterkante** (zMin) direkt unter den
+Tuer-Ecken eingefuegt, damit der Ring die Unterkante exakt verfolgt:
+
+```
+Original (Rechteck):          Mit Tuer (inkl. Ankerpunkte):
+
+D ──────── C                  D ─────────────────── C
+│          │                  │                     │
+│          │         →        │     TL ──── TR      │
+│          │                  │     │  Tuer │      │
+A ──────── B                  A ── A1 BL    BR B1 ── B
+                                   ↑  (5cm)    ↑
+                              Ankerpunkt   Ankerpunkt
+                              (A1.x=BL.x, (B1.x=BR.x,
+                               A1.z=zMin)  B1.z=zMin)
+```
+
+**Ring-Pfad (modular):**
+```
+edgeStart → A1 ↑ BL ↑ TL → TR ↓ BR ↓ B1 → edgeEnd → [restliche Punkte modular] → zurueck
+```
+
+Die modulare Traversierung (`idx = edgeEndIdx; while (idx != edgeStartIdx) { ... idx = (idx+1)%n; }`)
+stellt sicher, dass der Ring auch bei Wrap-Around der Unterkante ueber die Array-Grenze
+korrekt aufgebaut wird.
+
+#### 5. DoorSurface erzeugen
+
+Fuer jede Tuer wird eine `DoorSurface` erzeugt (CityGML 3.0 API: `AbstractFillingSurface`).
+In der CityGML 1.0-Ausgabe wird dies automatisch als `bldg:opening > bldg:Door` serialisiert.
+
+### Attribute auf DoorSurface
+
+| Attribut | Wert | Beschreibung |
+|----------|------|--------------|
+| `gml:name` | `LOD3_Door` | Tuer-Element |
+| `gml:id` | `Face_{WandFaceID}_Door_{N}` | Eindeutige ID |
+| `BldgFaceID` | `{WandFaceID}_Door_{N}` | Face-Identifikator |
+| `FACEAREA` | Tuerflaeche in m² | doorWidth × doorHeight |
+| `Geschoss` | `GF` | Immer Erdgeschoss |
+| `Hintertuer` | `true` | Nur bei DoorCount=-1 |
+
+### CityGML 1.0 Ausgabe
+
+```xml
+<bldg:WallSurface gml:id="Face_...">
+  <bldg:lod3MultiSurface>...</bldg:lod3MultiSurface>
+  <bldg:opening>
+    <bldg:Door gml:id="Face_..._Door_1">
+      <gml:name>LOD3_Door</gml:name>
+      <gen:stringAttribute name="BldgFaceID">
+        <gen:value>..._Door_1</gen:value>
+      </gen:stringAttribute>
+      <gen:stringAttribute name="FACEAREA">
+        <gen:value>2.1</gen:value>
+      </gen:stringAttribute>
+      <gen:stringAttribute name="Geschoss">
+        <gen:value>GF</gen:value>
+      </gen:stringAttribute>
+      <bldg:lod3MultiSurface>
+        <gml:MultiSurface srsName="urn:adv:crs:ETRS89_UTM33*DE_DHHN2016_NH" srsDimension="3">
+          <gml:surfaceMember>
+            <gml:Polygon>
+              <gml:exterior>
+                <gml:LinearRing>
+                  <gml:posList srsDimension="3">
+                    416290.0 5657417.0 159.62
+                    416291.0 5657417.0 159.62
+                    416291.0 5657417.0 161.72
+                    416290.0 5657417.0 161.72
+                    416290.0 5657417.0 159.62
+                  </gml:posList>
+                </gml:LinearRing>
+              </gml:exterior>
+            </gml:Polygon>
+          </gml:surfaceMember>
+        </gml:MultiSurface>
+      </bldg:lod3MultiSurface>
+    </bldg:Door>
+  </bldg:opening>
+</bldg:WallSurface>
+```
+
+### Validierung
+
+- **Flaechenerhaltung**: `wallAreaBefore ≈ wallAreaAfter + doorCount × doorWidth × (doorHeight + sockelHoehe)`
+  Die erwartete entfernte Flaeche umfasst die Tueroeffnung **plus** den Sockelstreifen darunter,
+  da der Ring durch die Ankerpunkte auf Unterkanten-Niveau (zMin) rechtwinklig zur Tueroeffnung
+  hochgeht und somit den Sockelbereich ebenfalls ausschneidet.
+- **Hoehenpruefung**: doorHeight + 5 cm Sockel ≤ Wandhoehe
+- **Breitenpruefung**: HDistDoWa + doorCount × doorWidth ≤ Wandlaenge
+- **Abstandspruefung**: Spacing zwischen Tueren ≥ 10 cm
+- **Toleranz**: Abweichungen < 1 cm² werden akzeptiert (Floating-Point-Artefakte)
+
+### Schwellwerte (DoorGenerator)
+
+| Konstante | Wert | Beschreibung |
+|-----------|------|--------------|
+| `DOOR_SILL_HEIGHT` | 0.05 m | Sockelhoehe ueber Wandunterkante |
+| `MIN_SPACING` | 0.10 m | Minimaler Abstand zwischen Tueren und zum Wandrand |
+| zTol | 0.01 m | Toleranz fuer Unterkanten-Erkennung (Z bei zMin) |
+| Flaechentoleranz | 0.01 m² | Schwelle fuer Flaechenabweichungs-Warnung |
+
+## Schritt 5: Fenster-Generator (WindowGenerator)
+
+Erzeugt Fenster (WindowSurface) an Aussenwand-Segmenten aller Geschosse (GF, UF, BA).
+Im Gegensatz zum DoorGenerator, der den **aeusseren Polygon-Ring** der Wand modifiziert
+(Tuer-Ausschnitte), werden Fenster als **innere Polygon-Ringe** (Loecher) in das
+Wand-Polygon eingefuegt. Der aeussere Ring bleibt unveraendert.
+
+> „Waende mit Fenstern setzen sich dabei aus einem aeusseren Polygon-Ring und einem
+> oder mehreren inneren Polygon-Ringen zusammen. Im Unterschied zu Tueren beruehren
+> Fenster den aeusseren Ring nicht."
+
+### Fenster-Parameter (aus JSON)
+
+| JSON-Feld | ModuleParameters | Beschreibung |
+|-----------|-----------------|--------------|
+| `*.window.HDistWaWi` | `hDistWallWindow` | Abstand Wandecke → erstes Fenster (m) |
+| `*.window.VDistFlWi` | `vDistFloorWindow` | Bruestungshoehe: Abstand Fussboden → Fensterunterkante (m) |
+| `*.window.HDistWiWi` | `hDistWindowWindow` | Lichter Abstand (edge-to-edge) zwischen Fenstern (m) |
+| `*.window.HDistDoWi` | `hDistDoorWindow` | Abstand Tuer → naechstes Fenster (m, nur GF) |
+| `*.window.WiLen` | `windowWidth` | Fensterbreite (m) |
+| `*.window.WiHe` | `windowHeight` | Fensterhoehe (m) |
+| `*.window.HDistMinWaWi` | `hDistMinWallWindow` | Mindestabstand Wandecke → Fensterkante (m) |
+
+Parameter-Quelle je Geschoss:
+- **GF**: `params.getGroundFloor().window` (inkl. HDistDoWi fuer Tuer-Fenster-Abstand)
+- **UF**: `params.getUpperFloor().window` (kein HDistDoWi, da keine Tueren)
+- **BA**: `params.getBasement().window` (kleinere Fenster, z.B. WiLen=0.8, WiHe=0.4)
+- **RO**: Keine Fenster — Dachfenster (RO.window.XXX, z.B. `RO.shape.RiHe` = Firsthoehe)
+  sind noch nicht implementiert (📋 TODO, siehe Geplante Erweiterungen)
+
+Beispielwerte (ME4_4.json):
+```
+GF: WiLen=1.1  WiHe=1.4  VDistFlWi=0.8  HDistWaWi=2.25  HDistWiWi=2.2  HDistMinWaWi=0.6  HDistDoWi=1.5
+UF: WiLen=1.1  WiHe=1.4  VDistFlWi=0.8  HDistWaWi=2.25  HDistWiWi=2.2  HDistMinWaWi=0.6
+BA: WiLen=0.8  WiHe=0.4  VDistFlWi=0.3  HDistWaWi=2.4   HDistWiWi=2.2  HDistMinWaWi=0.7
+```
+
+### Datenlage (Analyse der LoD3-GML mit 3.801 Gebaeuden)
+
+**WindowPreference-Attribut:**
+
+| Wert | Anzahl | Bedeutung |
+|------|--------|-----------|
+| `0`  | 10.995 | Keine Fenster |
+| `1`  | 74.826 | Fenster gewuenscht |
+
+**Geschoss-Verteilung der Waende:**
+
+| Geschoss   | Anzahl | Fenster-Quelle |
+|------------|--------|----------------|
+| BA         | 31.162 | `basement.window` |
+| GF         | 28.150 | `groundFloor.window` |
+| UF_1       | 23.405 | `upperFloor.window` |
+| UF_2       | 13.829 | `upperFloor.window` |
+| UF_3       |  4.881 | `upperFloor.window` |
+| UF_4–UF_8  |  2.022 | `upperFloor.window` |
+| 1000 (Dach)|  2.906 | — |
+| 2000 (Boden)| 2.195 | — |
+
+**BA-Waende (Keller):**
+- 26.820 BA-Waende gesamt, 16.198 davon mit WindowPreference
+- 26.394 haben Z_Max > 0 (oberirdischer Anteil vorhanden)
+- 426 haben Z_Max = 0 (exakt auf Gelaendeniveau)
+- Nutzbare Hoehe fuer Fenster = Z_Max (= oberirdischer Anteil ueber Gelaende)
+
+### Vorbedingungen (Gate-Checks)
+
+Eine Wand wird **uebersprungen** wenn:
+- `WindowPreference` fehlt oder = `"0"`
+- `Geschoss` ist `1000` (Dach), `2000` (Boden), oder fehlt
+- `Geschoss = "BA"` und `Z_Max <= 0` (komplett unterirdisch)
+- Window-Params ungueltig (`windowWidth <= 0` oder `windowHeight <= 0`)
+- Wand-Polygon hat < 4 Punkte
+- Geteilte Wand zwischen zwei BuildingParts (Duplikat erkannt per 3D-Mittelpunkt-Key)
+- **Fassadenanteil-Pruefung** ueberschritten (siehe Realismus-Pruefung)
+
+> **Hinweis zu `Innenwand="1"`:** Dieses Attribut ist ein LoD4-Indikator und zeigt an,
+> dass an dieser Stelle zukuenftig eine Innenwand abgehen koennte. Es bedeutet NICHT,
+> dass die Wand eine Innenwand ist. Da die Pipeline kein LoD4 erzeugt, werden Waende
+> mit `Innenwand="1"` normal behandelt und bekommen Fenster wie alle anderen Aussenwaende.
+
+### Algorithmus: Fensteranzahl berechnen
+
+**Grundformel (UF/BA — ohne Tueren):**
+
+HDistWiWi ist der **lichte Abstand** (edge-to-edge) zwischen Fenstern.
+HDistMinWaWi ist der Mindestabstand Wandecke → Fensterkante (beidseitig).
+
+```
+benoetigte_breite(n) = HDistMinWaWi + n × WiLen + (n-1) × HDistWiWi + HDistMinWaWi
+n_max = floor((wallLength - 2 × HDistMinWaWi + HDistWiWi) / (WiLen + HDistWiWi))
+```
+
+Falls `n_max < 1`: keine Fenster auf dieser Wand.
+
+**GF-Waende mit Tueren — Links/Rechts-Aufteilung:**
+
+1. Tuerpositionen aus vorhandenen DoorSurface-Objekten lesen
+   (`wall.getFillingSurfaces()` → DoorSurface-Instanzen)
+2. Horizontale Position jeder Tuer relativ zur Wandunterkante bestimmen
+3. Wand in Abschnitte aufteilen:
+   - **Links** der Tuer(en): Wandanfang → `doorLeftEdge - HDistDoWi`
+   - **Rechts** der Tuer(en): `doorRightEdge + HDistDoWi` → Wandende
+   - Zwischenabschnitte bei mehreren Tueren analog
+4. Fuer jeden Abschnitt separat Fensteranzahl berechnen
+
+### Fensterpositionen
+
+**Horizontale Positionierung:** HDistWaWi als Startabstand, HDistWiWi dazwischen:
+```
+offset_k = HDistWaWi + k × (WiLen + HDistWiWi)    fuer k = 0..n-1
+```
+Pruefung: letzte Fensterkante + HDistMinWaWi <= Abschnittlaenge. Falls nicht, n reduzieren.
+
+**Vertikale Positionierung:**
+```
+windowBottomZ = floorZ + VDistFlWi
+windowTopZ    = windowBottomZ + WiHe
+```
+- GF/UF: `floorZ` = Z_MIN_ASL (Unterkante des Geschoss-Segments)
+- BA: `floorZ` = Kellerboden = `zMin` aus dem Wandpolygon (absolute Koordinate)
+
+### Mehrere Fensterreihen
+
+Nach der ersten Reihe pruefen, ob eine weitere Reihe darueberpasst:
+```
+naechsteReiheBottomZ = windowTopZ + VDistFlWi
+naechsteReiheTopZ    = naechsteReiheBottomZ + WiHe
+```
+Falls `naechsteReiheTopZ <= wandOberkante`: weitere Reihe platzieren
+(gleiche horizontale Verteilung). Wiederhole bis kein Platz mehr.
+
+**Realismus-Pruefung (Fassadenanteil):** Um unrealistische Fassaden zu vermeiden,
+wird der **Window-to-Wall Ratio (WWR)** pro Wand berechnet und begrenzt:
+
+```
+WWR = (Anzahl_Fenster × WiLen × WiHe) / FACEAREA_original
+```
+
+| WWR-Bereich | Bewertung | Aktion |
+|-------------|-----------|--------|
+| 0–40 % | Normal | Alle Fenster platzieren |
+| 40–60 % | Grenzwertig | Warnung ausgeben |
+| > 60 % | Unrealistisch | Fensterreihen oder -anzahl reduzieren |
+
+Der WWR-Check erfolgt **nach** der Berechnung aller Fensterreihen:
+1. Gesamt-Fensterflaeche berechnen
+2. Falls WWR > MAX_WWR (Schwellwert, z.B. 0.60): letzte Reihe(n) entfernen
+3. Falls immer noch > MAX_WWR: Fensteranzahl pro Reihe reduzieren
+4. Warnung loggen mit tatsaechlichem WWR, Wandflaeche und Fensterflaeche
+
+### Giebelwaende — Point-in-Polygon-Check
+
+Giebelwaende (DachTyp_LOD3 ≠ 1000/Flachdach) erzeugen nach dem StoreyGenerator
+nicht-rechteckige Polygone (Trapeze, Dreiecke, Fuenfecke).
+
+**Pruefung:** Alle 4 Fenster-Ecken muessen innerhalb des Wand-Polygons liegen.
+Da alle Wandpunkte koplanar sind: Projektion auf 2D-Wandkoordinaten (u/v entlang
+Unterkante und senkrecht nach oben), dann Ray-Casting- oder Winding-Number-Algorithmus.
+
+Fenster die nicht vollstaendig im Polygon liegen werden **uebersprungen**
+(gezaehlt in `gableWindowsDropped`).
+
+### Fenster als innere Polygon-Ringe
+
+**Aeusserer Ring** → bleibt unveraendert (Kernunterschied zum DoorGenerator!)
+
+Fuer jedes Fenster wird ein **innerer Ring** (CW-Orientierung) erzeugt:
+
+```xml
+<gml:Polygon gml:id="Poly_...">
+  <gml:exterior>
+    <gml:LinearRing>
+      <gml:posList>... (aeusserer Ring, unveraendert) ...</gml:posList>
+    </gml:LinearRing>
+  </gml:exterior>
+  <gml:interior>   <!-- NEU: Fenster als Loch -->
+    <gml:LinearRing>
+      <gml:posList>... (CW-Ring: BL → TL → TR → BR → BL) ...</gml:posList>
+    </gml:LinearRing>
+  </gml:interior>
+  <gml:interior>   <!-- zweites Fenster -->
+    <gml:LinearRing>
+      <gml:posList>... </gml:posList>
+    </gml:LinearRing>
+  </gml:interior>
+</gml:Polygon>
+```
+
+**Orientierung:** Innerer Ring = **clockwise** (CW), da aeusserer Ring CCW ist.
+
+### WindowSurface als FillingSurface
+
+Analog zum DoorGenerator wird jede WindowSurface als FillingSurface an der
+WallSurface verankert:
+
+```java
+WindowSurface windowSurface = new WindowSurface();
+windowSurface.setId("Face_" + windowId);
+CityGmlUtils.setGmlName(windowSurface, "LOD3_Window");
+windowSurface.setLod3MultiSurface(
+    CityGmlUtils.createMultiSurfacePropertyWithDefaultSrs(windowPoly));
+
+// Attribute
+CityGmlUtils.addStringAttribute(windowSurface, "BldgFaceID", windowId);
+CityGmlUtils.addStringAttribute(windowSurface, "FACEAREA",
+    CityGmlUtils.formatNum(windowWidth * windowHeight));
+CityGmlUtils.addStringAttribute(windowSurface, "Geschoss", geschoss);
+
+wall.getFillingSurfaces().add(new AbstractFillingSurfaceProperty(windowSurface));
+```
+
+**CityGML 1.0 Ausgabe (erwartet):**
+```xml
+<bldg:WallSurface gml:id="Face_...">
+  <bldg:lod3MultiSurface>...</bldg:lod3MultiSurface>
+  <bldg:opening>
+    <bldg:Window gml:id="Face_..._Window_1">
+      <gml:name>LOD3_Window</gml:name>
+      <bldg:lod3MultiSurface>...</bldg:lod3MultiSurface>
+    </bldg:Window>
+  </bldg:opening>
+</bldg:WallSurface>
+```
+
+### Attribute auf WindowSurface
+
+| Attribut | Wert | Beschreibung |
+|----------|------|--------------|
+| `gml:name` | `LOD3_Window` | Fenster-Element |
+| `gml:id` | `Face_{WandFaceID}_Window_{N}` | Eindeutige ID |
+| `BldgFaceID` | `{WandFaceID}_Window_{N}` | Face-Identifikator |
+| `FACEAREA` | Fensterflaeche in m² | WiLen × WiHe |
+| `Geschoss` | `GF`, `UF_1`, `BA`, ... | Geschoss-Zuordnung |
+
+### Spezialfall: Kellerfenster (BA)
+
+- Nur wenn `WindowPreference = "1"` UND `Z_Max > 0`
+- **`floorZ` = `zMin` des Wandpolygons** (absoluter Kellerboden — nicht Gelaendeniveau!)
+- `windowBottomZ = zMin + VDistFlWi` (VDistFlWi = Bruestungshoehe ab Kellerboden)
+- `windowTopZ = windowBottomZ + WiHe`
+- Nutzbare Wandhoehe = tatsaechliche Wandhoehe + 10 cm Toleranz (fuer Gleitkomma-Ungenauigkeiten)
+- **Unterirdische Reihen werden gefiltert**: Fensterreihen, deren Oberkante vollstaendig
+  unterhalb Gelaendeniveau liegt (`rowTopZ < terrainZ - 0.001m`), werden verworfen.
+  So werden nur die oberirdisch sichtbaren Kellerfenster erzeugt.
+- `terrainZ = Z_MAX_ASL - Z_Max` (Gelaendeniveau, wird nur fuer den Unterirdisch-Filter genutzt)
+- Typisch 1 Fensterreihe pro Wand (Z_Max typisch 0.3–1.5 m)
+- Keine Tueren auf BA → keine Links/Rechts-Aufspaltung noetig
+
+```
+Beispiel EE3-Modul (BA.height=2.1, BA.CeHe=0.3, heightGr=0.45m ueber Gelaende):
+  H_DGM = 167.92     terrainZ = 167.92
+  zMin  = 165.97     floorZ   = 165.97  (Kellerboden)
+  VDistFlWi = 1.5,   WiHe = 0.45
+  windowBottomZ = 165.97 + 1.5  = 167.47
+  windowTopZ    = 167.47 + 0.45 = 167.92  → auf Gelaendeniveau, noch sichtbar ✓
+```
+
+### Vergleich DoorGenerator vs. WindowGenerator
+
+| Aspekt | DoorGenerator | WindowGenerator |
+|--------|---------------|-----------------|
+| Geschosse | Nur GF | GF + UF + BA |
+| Anzahl pro Wand | Aus Attribut `DoorCount` | **Berechnet** aus Wandlaenge + Params |
+| Polygon-Modifikation | Aeusserer Ring modifiziert | **Innere Ringe** (Loecher) |
+| Mehrere Reihen | Nein | **Ja** (wenn Wandhoehe ausreicht) |
+| Giebelwaende | Nicht relevant | **Point-in-Polygon-Check** |
+| Tuer-Interaktion | — | Liest Tuerpositionen, splittet links/rechts |
+| BA-Sonderlogik | Keine | Nur oberirdischer Anteil (Z_Max > 0) |
+| Realismus-Check | Nicht noetig (count vorgegeben) | **WWR-Pruefung** (max. Fassadenanteil) |
+
+### Beispiel-Ausgabe (WindowGenerator)
+
+Testlauf mit 3.801 Gebaeuden (LoD2_33_416_5656_2_SN):
+
+```
+Schritt 5 — Fenster:  44655 Fenster, 20448 Waende, 65659 uebersprungen, 360 Giebel-Drops, 17 WWR-Warn
+
+Per-Geschoss:
+  BA:   3844 Fenster (25247 uebersprungen)
+  GF:  12339 Fenster (16452 uebersprungen)
+  UF_1: 17409 Fenster (11351 uebersprungen)
+  UF_2:  8435 Fenster  (7895 uebersprungen)
+  UF_3:  1915 Fenster  (3302 uebersprungen)
+  UF_4:   471 Fenster   (953 uebersprungen)
+  UF_5:   124 Fenster   (327 uebersprungen)
+  UF_6:    59 Fenster   (112 uebersprungen)
+  UF_7:    38 Fenster     (9 uebersprungen)
+  UF_8:    21 Fenster    (11 uebersprungen)
+
+Skip-Gruende:
+  WP0/null=15788  coveredByPart=5752  BA_noZMax=215  noParams=1813
+  tooShort=32351  tooLow=8974  noFit=372  noBottom=333  pipFail=61
+```
+
+Von den ~74.826 Waenden mit `WindowPreference=1` erhalten 20.448 Waende tatsaechlich
+Fenster. Die meisten Uebersprungenen sind zu kurz fuer auch nur ein Fenster (`tooShort`)
+oder haben `WindowPreference=0/null`. 5.752 Waende werden als geteilte Waende zwischen
+BuildingParts erkannt und uebersprungen (`coveredByPart`) — der erste BuildingPart erhaelt
+die Fenster, der zweite wird dedupliziert.
+
+## Projektstruktur
+
+```
+LoD2_zu_LoD3/
+|-- pom.xml
+|-- README.md
+|-- src/main/java/de/mpsc/lod2tolod3/
+|   |-- Lod2ToLod3Pipeline.java      # Haupt-Pipeline (alle 5 Schritte)
+|   |-- Lod2ToLod3Promoter.java      # Schritt 1: Geometrie-Hochstufung (LoD2 → LoD3)
+|   |-- BasementGenerator.java       # Schritt 2: Keller-Generierung
+|   |-- StoreyGenerator.java         # Schritt 3: Geschoss-Unterteilung
+|   |-- DoorGenerator.java           # Schritt 4: Tuer-Generierung
+|   |-- WindowGenerator.java         # Schritt 5: Fenster-Generierung
+|   |-- tools/
+|   |   |-- WallAnalyzer.java        # Analyse-Tool: Wandpolygon-Statistiken
+|   |   |-- MixedRoofAnalyzer.java   # Analyse-Tool: Mischdach-Erkennung
+|   |-- model/
+|   |   |-- ModuleParameters.java    # Datenklasse fuer JSON-Parameter
+|   |-- util/
+|       |-- CityGmlUtils.java        # Gemeinsame Hilfsfunktionen (Polygone, Attribute, Solid-Shell-Rebuild,
+|       |                            #   processGmlFile, resolveOutputPath, createLinearRing, pointInPolygon2D)
+|       |-- DgmProvider.java          # Interface fuer DGM-Quellen (getHeight, contains)
+|       |-- DgmReader.java            # ESRI ASCII Grid Parser (.asc)
+|       |-- GeoTiffReader.java         # GeoTIFF Parser (.tif/.tiff, javax.imageio)
+|       |-- DgmMosaic.java             # Kombiniert mehrere DGM-Tiles zu einem Mosaik
+|       |-- DgmLoader.java             # Smart Factory: Format-Erkennung, ZIP, Verzeichnis
+|       |-- ModuleParametersLoader.java  # JSON-Parameter laden und cachen
+|-- output/                          # Pipeline-Ausgabedateien
+```
+
+## JSON-Baukoerpermodule
+
+Die Pipeline verwendet JSON-Dateien mit Baukoerper-Parametern. Jedes Gebaeude wird ueber sein `sst`-Attribut einem Modul zugeordnet.
+
+### Struktur
+
+```json
+{
+  "sst": "EFH_2",
+  "BA": { "height": 2.5 },
+  "GF": { "height": 3.0 },
+  "UF": { "height": 2.5 }
+}
+```
+
+| Feld | Beschreibung |
+|------|--------------|
+| `sst` | Strukturtyp (Schluessel fuer Zuordnung) |
+| `BA.height` | Kellerhoehe in Metern |
+| `GF.height` | Erdgeschoss-Hoehe in Metern |
+| `UF.height` | Obergeschoss-Hoehe in Metern |
+
+## TerrainIntersectionCurve (TIC) — Methodik und Referenzen
+
+### Konzept nach Kolbe
+
+Die **TerrainIntersectionCurve (TIC)** ist ein zentrales Konzept in CityGML, das von Thomas
+Kolbe als „Interface-Objekt" zwischen dem 3D-Gebaeudemodell und dem Digitalen Gelaendemodell
+(DGM/DTM) beschrieben wird (Kolbe, 2009). Die TIC dokumentiert exakt, wo ein Gebaeude das
+Gelaende schneidet, und loest damit ein fundamentales Problem der 3D-Stadtmodellierung:
+Gebaeude und Gelaende werden typischerweise getrennt modelliert und stimmen geometrisch
+nicht perfekt ueberein.
+
+**Definition (CityGML 3.0, OGC 20-010):**
+> „The terrain intersection curve marks the boundary line of the building where
+> it touches the ground." (AbstractPhysicalSpace, Modul Building)
+
+**Verwendung in dieser Pipeline:**
+
+Fuer Gebaeude mit Keller wird die originale GroundSurface durch die physische Bodenplatte
+ersetzt (s. Schritt 2). Die TIC dokumentiert den urspruenglichen Gelaendeschnitt als
+`lod3TerrainIntersectionCurve` — ein `gml:MultiCurve` bestehend aus geschlossenen 3D-Ringen.
+
+```
+Draufsicht: TIC als geschlossener Ring um den Gebaeude-Grundriss
+
+     +---------------------------+
+     |                           |
+     |  Grundriss (GroundSurface)|   TIC-Ring: geschlossener 3D-LineString
+     |                           |   Z-Werte: H_DGM (flach) oder bilinear
+     |                           |            interpoliert aus DGM
+     +---------------------------+
+
+Mehrere Ringe moeglich bei:
+  - Gebaeude mit Innenhof (2 Ringe: aussen + innen)
+  - BuildingParts mit eigenem Grundriss
+```
+
+### Geometrietyp
+
+| Eigenschaft | Wert |
+|---|---|
+| CityGML-Element | `bldg:lod3TerrainIntersection` |
+| Geometrie | `gml:MultiCurve` (1 oder mehr `gml:curveMember`) |
+| Kurventyp | `gml:LineString` mit `gml:posList` (srsDimension=3) |
+| Topologie | Geschlossene Ringe (erster Punkt = letzter Punkt) |
+| Traeger | `AbstractPhysicalSpace` → `Building`, `BuildingPart` |
+| CRS | `urn:adv:crs:ETRS89_UTM33*DE_DHHN2016_NH` |
+
+### TIC-Erzeugung: Zwei Varianten
+
+#### Variante 1: Flache TIC (ohne DGM — Standard)
+
+Wenn kein Gelaendemodell verfuegbar ist, wird die TIC als flacher 3D-Ring bei Z = H_DGM
+aus dem GroundSurface-Grundriss erzeugt:
+
+```
+Eingabe:  GroundSurface-Polygon mit Vertices V1..Vn
+Ausgabe:  Geschlossener LineString mit Z = H_DGM
+
+V1 (x1, y1, H_DGM) → V2 (x2, y2, H_DGM) → ... → Vn (xn, yn, H_DGM) → V1
+```
+
+Dies ist eine Approximation unter der Annahme eines flachen Gelaendes im Bereich des
+Gebaeudegrundrisses.
+
+#### Variante 2: Interpolierte TIC (mit DGM)
+
+Wenn ein Digitales Gelaendemodell (DGM) vorhanden ist (ESRI ASCII Grid, GeoTIFF, oder
+als Mosaik mehrerer Kacheln), wird die Z-Koordinate jedes TIC-Vertex durch **bilineare
+Interpolation** aus dem DGM bestimmt:
+
+```
+Eingabe:  GroundSurface-Polygon mit Vertices V1..Vn + DGM-Raster
+Ausgabe:  Geschlossener LineString mit Z = DGM(x, y)
+
+V1 (x1, y1, DGM(x1,y1)) → V2 (x2, y2, DGM(x2,y2)) → ... → V1
+
+Bilineare Interpolation:
+  (col, row) = ((x - xllcorner) / cellsize - 0.5,
+                (nrows - 1) - (y - yllcorner) / cellsize + 0.5)
+
+  Z = (1-fx)(1-fy) * data[r0][c0]
+    + (  fx)(1-fy) * data[r0][c1]
+    + (1-fx)(  fy) * data[r1][c0]
+    + (  fx)(  fy) * data[r1][c1]
+
+  wobei fx/fy = fraktionale Anteile in der Rasterzelle
+```
+
+Die bilineare Interpolation liefert glatte Uebergaenge zwischen benachbarten Rasterzellen.
+Liegt ein Vertex genau auf dem Rand des DGM-Rasters, wird der naeachste Rasterwert verwendet
+(Nearest-Neighbor-Fallback). Liegt er ausserhalb des DGM, wird H_DGM als Fallback verwendet,
+wie von Kolbe & Czerwinski (2006) empfohlen.
+
+### Qualitaetskriterien nach Kolbe
+
+Kolbe (2009) formuliert folgende Qualitaetskriterien fuer TICs, die in dieser Pipeline
+beruecksichtigt werden:
+
+| Kriterium | Umsetzung |
+|---|---|
+| **Geschlossene Ringe** | TIC-LineStrings werden immer als geschlossene Ringe erzeugt (V1 = Vn+1) |
+| **3D-Koordinaten** | Alle Vertices haben volle 3D-Koordinaten (srsDimension=3) |
+| **Konsistenz mit Gebaeude** | TIC verwendet die XY-Koordinaten der originalen GroundSurface |
+| **DGM-Integration** | Optional: Z-Werte werden bilinear aus dem DGM interpoliert |
+| **NODATA-Behandlung** | DGM-Luecken werden per Fallback auf H_DGM behandelt |
+| **Multi-Ring** | Mehrere Grundrisspolygone erzeugen mehrere TIC-Ringe (MultiCurve) |
+
+### Validierung gegen offizielle Dresden-TICs
+
+Die von der Pipeline erzeugten TICs wurden gegen die offiziellen `lod2TerrainIntersectionCurve`-Daten
+des **Geoportal Dresden** (LoD2-Stadtmodell, Kachel 33_416_5656) validiert. Dabei wurden 1720
+Gebaeude per Centroid-Naehe gematcht und die Z-Werte der TIC-Vertices verglichen:
+
+| Metrik | Wert |
+|--------|------|
+| Gematchte Gebaeude | 1720 (von 2148 unsere / 5127 Dresden) |
+| **Mittlere Differenz AvgZ** | **-0,001 m** |
+| Mittlerer Absolutbetrag | 0,191 m |
+| Median (P50) | -0,006 m |
+| 90%-Intervall (P5–P95) | -0,48 m bis +0,46 m |
+| Anteil innerhalb ±0,5 m | 90,8% |
+| Anteil innerhalb ±1,5 m | 97,3% |
+
+**Ergebnis:** Die Z-Werte unserer TICs sind im Mittel praktisch identisch mit den offiziellen
+Dresden-TICs (Differenz = -0,001 m). Die verbleibenden Abweichungen entstehen durch:
+
+- **Vertex-Verdichtung**: Dresden erzeugt Ø 52 Vertices pro TIC (auf 1m-DGM-Raster verdichtet),
+  unsere Pipeline verwendet Ø 14 Vertices (die originalen Grundriss-Eckpunkte). Dadurch bildet
+  Dresden das Mikrorelief feiner ab, waehrend unsere TICs die Grundrissform exakt widerspiegeln.
+- **Gebaeude-Matching**: Die Building-IDs unterscheiden sich zwischen den Datenquellen
+  (DESNALK0pF… vs. DESNATPU1000…), daher erfolgte das Matching geometrisch per Centroid-Entfernung
+  (Median: 1,44 m).
+- **Ausreisser (>2 m)**: Betreffen ausschliesslich BuildingParts an Hanglagen — hier kann die
+  unterschiedliche Vertex-Verdichtung groessere Differenzen verursachen.
+
+### Referenzen
+
+- **Kolbe, T. H. (2009)**. *Representing and Exchanging 3D City Models with CityGML.*
+  In: Lee, J. & Zlatanova, S. (Eds.), 3D Geo-Information Sciences, Lecture Notes in
+  Geoinformation and Cartography, Springer, pp. 15–31.
+  DOI: [10.1007/978-3-540-87395-2_2](https://doi.org/10.1007/978-3-540-87395-2_2)
+
+- **Kolbe, T. H. & Czerwinski, A. (2006)**. *Integration of DTM and 3D Building Models
+  Using CityGML's TerrainIntersectionCurve.* Proceedings of the 2nd International Workshop
+  on 3D Geo-Information, Berlin.
+
+- **Kolbe, T. H., Gröger, G. & Plümer, L. (2005)**. *CityGML – Interoperable Access to
+  3D City Models.* In: van Oosterom, P., Zlatanova, S. & Fendel, E. (Eds.), Geo-information
+  for Disaster Management, Springer, pp. 883–899.
+  DOI: [10.1007/3-540-27468-5_63](https://doi.org/10.1007/3-540-27468-5_63)
+
+- **OGC (2021)**. *OGC City Geography Markup Language (CityGML) Part 1: Conceptual Model
+  Standard.* OGC 20-010, Version 3.0.
+  URL: [https://docs.ogc.org/is/20-010/20-010.html](https://docs.ogc.org/is/20-010/20-010.html)
+
+- **Gröger, G. & Plümer, L. (2012)**. *CityGML – Interoperable semantic 3D city models.*
+  ISPRS Journal of Photogrammetry and Remote Sensing, 71, pp. 12–33.
+  DOI: [10.1016/j.isprsjprs.2012.04.004](https://doi.org/10.1016/j.isprsjprs.2012.04.004)
+
+## DGM-Unterstuetzung (Multi-Format)
+
+### Ueberblick
+
+Die Pipeline unterstuetzt Digitale Gelaendemodelle in mehreren Formaten:
+
+| Format | Dateiendung | Beschreibung |
+|--------|-------------|---------------|
+| ESRI ASCII Grid | `.asc` | Textbasiertes Rasterformat (Landesvermessungsaemter, GeoSN) |
+| GeoTIFF | `.tif`, `.tiff` | Binaeres Rasterformat mit Georeferenzierung (haeufig bei DGM-Downloads) |
+| ZIP-Archiv | `.zip` | Automatische Extraktion — enthaltene `.asc`/`.tif`-Dateien werden on-the-fly gelesen |
+| Verzeichnis | Ordnerpfad | Alle DGM-Dateien (`.asc`, `.tif`, `.zip`) werden rekursiv gesammelt und als Mosaik kombiniert |
+
+### Architektur
+
+```
+DgmProvider (Interface)
+├── DgmReader        — ESRI ASCII Grid (.asc)
+├── GeoTiffReader    — GeoTIFF (.tif / .tiff)
+└── DgmMosaic        — Kombiniert mehrere Tiles zu einem virtuellen DGM
+
+DgmLoader (Factory)
+└── load(Path) → DgmProvider
+    ├── .asc       → DgmReader
+    ├── .tif/.tiff → GeoTiffReader
+    ├── .zip       → liest .asc/.tif aus dem Archiv (ohne Entpacken)
+    └── Verzeichnis → scannt rekursiv, laedt alle Tiles als DgmMosaic
+```
+
+`DgmLoader.load(Path)` erkennt das Format automatisch anhand der Dateiendung bzw.
+des Dateityps (Verzeichnis) und gibt ein `DgmProvider`-Objekt zurueck.
+
+### ESRI ASCII Grid (.asc)
+
+Eigener Parser ohne externe Abhaengigkeiten.
+
+```
+ncols         1000
+nrows         1000
+xllcorner     416000.0
+yllcorner     5656000.0
+cellsize      1.0
+NODATA_value  -9999
+159.57 159.58 159.60 159.62 ...
+159.55 159.56 159.59 159.61 ...
+...
+```
+
+| Header-Feld | Beschreibung |
+|---|---|
+| `ncols` / `nrows` | Spalten- und Zeilenanzahl des Rasters |
+| `xllcorner` / `yllcorner` | Linke untere Ecke (UTM-Koordinaten) |
+| `xllcenter` / `yllcenter` | Alternativ: Mittelpunkt der linken unteren Zelle (wird automatisch in corner umgerechnet) |
+| `cellsize` | Rasterweite in Metern (z.B. 1.0, 2.0, 5.0) |
+| `NODATA_value` | Fehlwert (z.B. -9999) |
+
+### GeoTIFF (.tif / .tiff)
+
+GeoTIFF-Reader auf Basis von `javax.imageio` (Java 9+) — **keine externen Abhaengigkeiten**.
+
+Unterstuetzte GeoTIFF-Tags:
+
+| Tag | Nummer | Beschreibung |
+|-----|--------|--------------|
+| `ModelPixelScaleTag` | 33550 | Pixelgroesse in X/Y/Z |
+| `ModelTiepointTag` | 33922 | Referenzpunkt (Pixel → Welt) |
+| `ModelTransformationTag` | 34264 | Alternativ: 4×4 Transformationsmatrix |
+| `GDAL_NODATA` | 42113 | NODATA-Wert als String |
+
+Unterstuetzte Kompression: LZW, Deflate, PackBits, unkomprimiert.
+
+Typische Daten (z.B. DGM1 Sachsen/Dresden):
+- Kachelgroesse: 2000 × 2000 Pixel bei 1 m Aufloesung (= 2 × 2 km)
+- Dateien als ZIP bereitgestellt: `dgm1_{easting}_{northing}_2_sn_tiff.zip`
+- Jede ZIP-Datei enthaelt: `.tif`, `.tfw` (World-File), `.tif.aux.xml`, `_akt.csv`
+
+### ZIP-Unterstuetzung
+
+ZIP-Archive werden **on-the-fly** gelesen — kein manuelles Entpacken noetig.
+`DgmLoader` oeffnet das ZIP, sucht die erste `.asc`- oder `.tif`-Datei darin und
+liest sie direkt aus dem InputStream.
+
+### Mosaik (Multi-Tile)
+
+Wird ein **Verzeichnis** als DGM-Pfad angegeben, scannt `DgmLoader` rekursiv nach
+allen unterstuetzten Dateien (`.asc`, `.tif`, `.tiff`, `.zip`) und kombiniert sie
+zu einem virtuellen Mosaik (`DgmMosaic`).
+
+Bei der Hoehenabfrage wird die passende Kachel anhand von `contains(x, y)` ermittelt.
+Dies ermoeglicht z.B. die Nutzung aller 117 DGM1-Kacheln fuer Dresden als ein
+durchgehendes Gelaendemodell.
+
+```
+Beispiel-Verzeichnis:
+DGM/Dresden/
+├── dgm1_33_330_5640_2_sn_tiff.zip
+├── dgm1_33_330_5642_2_sn_tiff.zip
+├── ...
+└── dgm1_33_420_5664_2_sn_tiff.zip   (117 Kacheln)
+
+Ausgabe:
+  Scanne DGM-Verzeichnis: DGM/Dresden
+  117 DGM-Dateien gefunden
+  DGM-Mosaik geladen: 117 Tiles in 12345 ms
+```
+
+### Interpolation
+
+Beide Reader (DgmReader und GeoTiffReader) verwenden **bilineare Interpolation**
+zur Hoehenwertbestimmung:
+
+```
+Fuer einen Punkt P(x, y):
+
+1. Rasterposition berechnen:
+   col = (x - xllcorner) / cellsize - 0.5
+   row = (nrows - 1) - (y - yllcorner) / cellsize + 0.5
+
+2. Die 4 umgebenden Rasterzellen bestimmen:
+   c0 = floor(col),  c1 = c0 + 1
+   r0 = floor(row),  r1 = r0 + 1
+
+3. Bilinear interpolieren:
+   fx = col - c0,  fy = row - r0
+   Z = (1-fx)(1-fy) · Z[r0,c0]
+     + (  fx)(1-fy) · Z[r0,c1]
+     + (1-fx)(  fy) · Z[r1,c0]
+     + (  fx)(  fy) · Z[r1,c1]
+```
+
+### Robustheit
+
+- **NODATA-Behandlung**: Rasterzellen mit NODATA-Wert werden uebersprungen; naechster
+  gueltiger Nachbar wird verwendet
+- **Rand-Fallback**: Fuer Punkte am Rasterrand wird Nearest-Neighbor statt bilineare
+  Interpolation verwendet
+- **Speichereffizienz**: Hoehenwerte als `float[][]` (nicht `double[][]`) fuer geringe
+  Speicherbelastung bei grossen DGMs (2000×2000 Zellen = ~16 MB pro Tile)
+- **Bounds-Check**: `contains(x, y)` prueft ob ein Punkt im DGM-Bereich liegt
+- **Format-Erkennung**: `DgmLoader` erkennt das Format automatisch anhand der Dateiendung
+- **Fehlertoleranz**: Unlesbare Dateien in einem Verzeichnis werden mit Warnung uebersprungen
+
+### API
+
+```java
+// Einzelne Datei laden (Format wird automatisch erkannt)
+DgmProvider dgm = DgmLoader.load(Path.of("dgm.asc"));       // ASCII Grid
+DgmProvider dgm = DgmLoader.load(Path.of("dgm1.tif"));       // GeoTIFF
+DgmProvider dgm = DgmLoader.load(Path.of("dgm1.zip"));       // ZIP (on-the-fly)
+
+// Ganzes Verzeichnis als Mosaik laden
+DgmProvider dgm = DgmLoader.load(Path.of("DGM/Dresden/"));   // Multi-Tile Mosaik
+
+// Hoehe abfragen (bilineare Interpolation)
+double z = dgm.getHeight(416290.843, 5657417.357);
+
+// Bereich pruefen
+boolean inRange = dgm.contains(416290.843, 5657417.357);
+
+// Beschreibung (fuer Logging)
+String info = dgm.describe();  // z.B. "GeoTIFF 2000x2000, pixelSize=1.00"
+```
+
+## Algorithmen und Berechnungsverfahren
+
+### Sutherland-Hodgman Polygon-Clipping (cutWallPolygonAtZ)
+
+**Problem:** Waende muessen an Geschossgrenzen horizontal geschnitten werden. Waende koennen
+beliebige Formen haben: Rechtecke (90%), Fuenfecke/Giebel (3%), Sechsecke/Walm (4%),
+Dreiecke (0.4%), und komplexere Formen mit bis zu 34 Eckpunkten (Gauben, Erker, L-Formen).
+
+**Loesung:** Der Sutherland-Hodgman-Algorithmus teilt ein beliebiges Polygon an einer
+horizontalen Ebene z=zCut in zwei Haelften. Der Algorithmus ist allgemein und funktioniert
+unabhaengig von der Punktanzahl oder Form des Polygons.
+
+**Sicherheitsmerkmale:**
+- **Fitzelchen-Toleranz:** Schnitte werden nur ausgefuehrt wenn zCut mindestens `tolerance`
+  (5cm) von den Polygon-Kanten entfernt ist → verhindert degenerierte Splitter-Polygone
+- **Klassifikations-Epsilon:** Punkte innerhalb 1mm der Schnittebene werden als "auf der Ebene"
+  behandelt → verhindert Numerik-Probleme bei fast-horizontalen Kanten
+- **Z-Rundung:** Schnittpunkte werden auf mm-Genauigkeit gerundet → verhindert Floating-Point-Artefakte
+
+### Newell's Method (calculateWallArea)
+
+**Problem:** Die Flaeche eines 3D-Polygons berechnen. Die alte Methode (Breite × Hoehe)
+funktionierte nur fuer Rechtecke (4 Punkte). Fuenfecke, Dreiecke, etc. erhielten FACEAREA=0.
+
+**Loesung:** Newell's Method berechnet die Flaeche jedes planaren 3D-Polygons:
+
+```
+1. Flaechennormale N berechnen:
+   N = Summe ueber alle Kanten (P_i x P_{i+1})
+   → Kreuzprodukt-Summe aller aufeinanderfolgenden Eckpunkte
+
+2. Flaeche = halbe Laenge von N:
+   A = 0.5 * |N|
+```
+
+Fuer Rechtecke liefert Newell's Method das gleiche Ergebnis wie Breite × Hoehe.
+
+### Wandnormale-Azimut (calculateWallNormalAzimuthFromPolygon)
+
+**Problem:** Die Blickrichtung der Wand bestimmen (Kompass-Azimut der Aussenflaechen-Normalen).
+
+**Loesung:** Dreistufige Strategie:
+1. **Primaer:** Suche zwei aufeinanderfolgende Punkte am unteren Rand (minZ). Die Senkrechte
+   auf diese "untere Kante" in der Horizontalebene ist die Wandnormale. Funktioniert fuer
+   alle gaengigen Wandformen.
+2. **Fallback:** Wenn keine untere Kante gefunden (z.B. Dreieck mit Einzelpunkt unten):
+   Verwende die laengste horizontale Kante.
+3. **Letzter Fallback:** Verwende die erste Kante des Polygons.
+
+### Flachdach-Erkennung
+
+**Problem:** Bei Flachdaechern liegt die CeilingSurface des obersten Geschosses auf derselben
+Hoehe wie die RoofSurface → doppelte Geometrie, sinnlos.
+
+**Loesung:** Berechne First-Hoehe (Max Z aller RoofSurface-Punkte) und Traufe-Hoehe
+(Min Z aller RoofSurface-Punkte). Wenn die Differenz < 0.30m: Dach ist "flach" →
+keine CeilingSurface am obersten Geschoss erzeugen.
+
+```
+firstZ  = max(alle RoofSurface Z-Werte)
+traufeZ = min(alle RoofSurface Z-Werte)
+
+isFlachdach = (firstZ - traufeZ) < 0.30m
+
+Wenn isFlachdach UND oberstes Geschoss:
+  → Kein CeilingSurface erzeugen (RoofSurface ist die Decke)
+```
+
+### Mischdach-Erkennung
+
+**Problem:** Manche Gebaeude haben sowohl ein geneigtes Dach (Walm-/Satteldach) als auch
+ein Flachdach auf niedrigerem Niveau. Die Traufe (traufeZ) liegt dann auf dem Flachdach-Level.
+Die CeilingSurface des obersten Geschosses erstreckte sich bisher ueber den gesamten Grundriss
+und ueberlagerte dabei das Flachdach. Im Testdatensatz sind **536 von 5101** Gebaeude/BuildingParts
+(10.5%) davon betroffen.
+
+```
+FALSCH (vorher):                     RICHTIG (jetzt):
+
+     /‾‾‾‾‾\                            /‾‾‾‾‾\
+    / Walm   \   ________              / Walm   \   ________
+   /  dach    \ |Flachdach|            /  dach    \ |Flachdach|
+  /            \|         |           /            \|         |
+  ==========================          ==============|  (kein  |
+  |  CeilingSurface       |          |  Ceiling    ||  Ceiling|
+  | (gesamter Grundriss!) |          | (nur unter  ||  hier!) |
+  ==========================          | Walmdach)  ||         |
+                                      ==============|=========|
+```
+
+**Algorithmus:**
+
+```
+1. Alle RoofSurface-Polygone sammeln
+2. Fuer jedes Polygon: maxZ bestimmen
+3. Klassifizieren:
+   - "Flach bei Traufe": (maxZ - traufeZ) < 0.30m  → keine Decke noetig
+   - "Geneigt/Erhoeht":  (maxZ - traufeZ) >= 0.30m → Decke noetig
+
+4. Wenn ALLE flach → reines Flachdach → keine Decke (wie bisher)
+5. Wenn KEINE flach → normales Dach → Decke aus Grundrisspolygon (wie bisher)
+6. Wenn GEMISCHT:
+   → CeilingSurface NUR aus projizierten geneigten Dachpolygonen erzeugen
+   → Jedes geneigte Dachpolygon wird auf Z=traufeZ projiziert
+   → Die Projektion ergibt die korrekte 2D-Grundflaeche unter dem geneigten Teil
+   → Unter dem Flachdach: keine CeilingSurface (RoofSurface = Decke)
+```
+
+**Empirische Verteilung im Testdatensatz (536 Mischdach-Gebaeude):**
+
+Typische Muster:
+- Walmdach + Anbau mit Flachdach
+- Hauptgebaeude mit Satteldach + Garage mit Flachdach
+- Staffelgeschoss mit Flachdach unter hoeherem Dach
+
+## Technische Details
+
+### citygml4j Klassenhierarchie
+
+Der Promoter nutzt die generischen Basisklassen von citygml4j:
+
+```
+AbstractCityObject
+|-- AbstractSpace (Building, BuildingPart, Tunnel, Bridge...)
+|   |-- getSolid(lod) / setSolid(lod, value)
+|   |-- getMultiSurface(lod) / setMultiSurface(lod, value)
+|   |-- getMultiCurve(lod) / setMultiCurve(lod, value)
+|
+|-- AbstractSpaceBoundary
+    |-- AbstractThematicSurface (WallSurface, RoofSurface...)
+        |-- getMultiSurface(lod) / setMultiSurface(lod, value)
+```
+
+### Metadaten-Attribute
+
+Jedes hochgestufte Building erhaelt generische Attribute:
+
+```xml
+<!-- Nach Schritt 1: LoD2->LoD3 Hochstufung -->
+<gen:stringAttribute name="lod2ToLod3Promotion">
+  <gen:value>promoted=true; count=13; types=[Building.lod2Solid, ...]; timestamp=...</gen:value>
+</gen:stringAttribute>
+
+<!-- Nach Schritt 2: Keller hinzugefuegt -->
+<bldg:storeysBelowGround>1</bldg:storeysBelowGround>  <!-- natives CityGML-Element -->
+<gen:stringAttribute name="LoD3_Basement">
+  <gen:value>generated</gen:value>
+</gen:stringAttribute>
+
+<!-- Nach Schritt 3: Geschosse erstellt -->
+<gen:stringAttribute name="storeysGenerated">
+  <gen:value>3</gen:value>
+</gen:stringAttribute>
+```
+
+### CityGML-Version
+
+Die Pipeline liest und schreibt CityGML 1.0 (Namespace `http://www.opengis.net/citygml/1.0`).
+
+**Hinweis**: CityGML 1.0 unterstuetzt kein `BuildingStorey`-Element direkt. Stattdessen werden die Geschoss-Informationen als `FloorSurface` und `CeilingSurface` mit entsprechenden IDs gespeichert:
+- `{buildingId}_storey{level}_floor_{polygonIndex}`
+- `{buildingId}_storey{level}_ceiling_{polygonIndex}`
+
+## Geplante Erweiterungen
+
+| Schritt | Funktion | Status |
+|---------|----------|--------|
+| 1 | LoD2 → LoD3 Geometrie | ✅ Fertig |
+| 2 | Keller | ✅ Fertig |
+| 3 | Geschosse (Floor/Ceiling/Wandschnitt) | ✅ Fertig |
+| 2a | GroundSurface-Ersetzung + TIC | ✅ Fertig |
+| 2b | DGM-Reader (ASC + GeoTIFF + ZIP + Mosaik, bilineare Interpolation) | ✅ Fertig |
+| 3a | Sutherland-Hodgman (alle Wandformen) | ✅ Fertig |
+| 3b | Flachdach-Erkennung (keine doppelte Decke) | ✅ Fertig |
+| 3c | Newell's Method (3D-Flaechenberechnung) | ✅ Fertig |
+| 3d | Mischdach-Erkennung (Ceiling nur unter geneigtem Dach) | ✅ Fertig |
+| 3e | Flachdach-Fitzelchen (Merge-Limit 4.0m) | ✅ Fertig |
+| — | Single-Pass-Pipeline (1× lesen, 5 Schritte in-memory, 1× schreiben) | ✅ Fertig |
+| 4 | Tueren (DoorGenerator) | ✅ Fertig |
+| 5 | Fenster (WindowGenerator) | ✅ Fertig |
+| 5a | Kellerfenster ab Kellerboden (BA floor fix) | ✅ Fertig |
+| 5b | BuildingPart-Duplizierung verhindern (coveredByPart) | ✅ Fertig |
+| 5c | Dachfenster (RO.window.XXX) | 📋 TODO |
+| 6 | Balkone/Terrassen | Geplant |
+
+### TODO: Dachfenster (Schritt 5c)
+
+Die JSON-Baukörpermodule enthalten bereits RO-Parameter (z.B. `RO.window.WiLen`,
+`RO.window.WiHe`, `RO.window.VDistFlWi`, `RO.shape.RiHe` = Firsthöhe).
+Die Implementierung ist zurückgestellt und als eigenständiger Schritt (5c) geplant.
+
+Geplante Logik:
+- Dachflächen (`RoofSurface`) nach Neigung und Azimut analysieren
+- Firsthöhe (`RO.shape.RiHe`) aus JSON, Traufhöhe aus Geometrie bestimmen
+- Dachfenster als `Opening`/`Window` auf schrägen Flächen platzieren
+- Begrenzung auf maximal zulässigen Flächenanteil (WWR analog zu Wandfenstern)
+
+## Beispiel-Ausgabe (Pipeline)
+
+```
+============================================================
+  LoD2 -> LoD3 Konvertierungs-Pipeline (Single-Pass)
+============================================================
+Input:  D:\...\LoD2_33_416_5656_2_SN_BuildingPreferences.gml
+JSON:   D:\...\Baukoerpermodule_json
+Output: D:\...\output
+DGM:    D:\...\DGM\Dresden
+BoundedBy-Envelope uebernommen
+
+============================================================
+                  Pipeline abgeschlossen
+============================================================
+Verarbeitungszeit: 20.115 s
+Ausgabedatei: D:\...\output\LoD3_33_416_5656_2_SN.gml
+
+Schritt 1 — Promotion:  3801 Gebaeude, 67079 Geometrien hochgestuft, 175676 Namen
+Schritt 2 — Keller:     2148 Keller, 2171 GS ersetzt, 2148 TICs
+Schritt 3 — Geschosse:  5719 Geschosse, 59287 Wandsegmente, 5768 Boeden, 6642 Decken
+Schritt 4 — Tueren:     1340 Tueren, 1321 Waende modifiziert, 1181 uebersprungen
+Schritt 5 — Fenster:    44655 Fenster, 20448 Waende, 65659 uebersprungen, 360 Giebel-Drops, 17 WWR-Warn
+Schritt 5 — Skip:       WP0/null=15788, coveredByPart=5752, tooShort=32351, tooLow=8974, noFit=372, noParams=1813
+```
+
+## Anforderungen
+
+- Java 21+
+- Maven 3.6+
+- citygml4j 3.2.7 (wird automatisch heruntergeladen)
+
+## Build
+
+```bash
+mvn clean package
+```
+
+Erzeugt drei JAR-Dateien im `target/` Verzeichnis.
+
+---
+
+## Ideen & Verbesserungspotenzial
+
+### CityGML-Versions-Upgrade
+
+Die Pipeline schreibt aktuell **CityGML 1.0** (`http://www.opengis.net/citygml/1.0`).
+citygml4j 3.2.7 unterstützt aber drei Versionen:
+
+```java
+public enum CityGMLVersion {
+    v1_0,   // CityGML 1.0 (aktuell verwendet)
+    v2_0,   // CityGML 2.0
+    v3_0    // CityGML 3.0
+}
+```
+
+Die Bibliothek nutzt intern ein **CityGML-3.0-natives Objektmodell** — die Java-API ist 
+versions-agnostisch. Der `CityGMLVersion`-Enum steuert nur die XML-Serialisierung.
+Das bedeutet: der gleiche Java-Code kann wahlweise CityGML 1.0, 2.0 oder 3.0 schreiben.
+
+---
+
+#### Option A: Upgrade auf CityGML 2.0
+
+**Aufwand: Minimal (3 Zeilen ändern)**
+
+In genau 2 Dateien muss `CityGMLVersion.v1_0` durch `CityGMLVersion.v2_0` ersetzt werden:
+
+| Datei | Beschreibung |
+|-------|-------------|
+| `CityGmlUtils.java` (processGmlFile) | Zentrale GML-Schreiblogik fuer alle Standalone-Generatoren |
+| `Lod2ToLod3Pipeline.java` | Pipeline-Modus (Single-Pass) |
+
+> **Hinweis:** Seit dem Refactoring nutzen alle Generatoren die gemeinsame Methode
+> `CityGmlUtils.processGmlFile()` zum Lesen/Schreiben — daher genuegt eine einzige
+> Aenderung fuer alle Standalone-Modi.
+
+**Was passiert automatisch (ohne Codeänderung):**
+- Alle Namespaces werden auf `*/2.0` umgestellt (`building/2.0`, `generics/2.0`, etc.)
+- XML-Prefixes (`bldg:`, `gen:`, `gml:`) bleiben gleich
+- LoD-Geometrie (`lod2MultiSurface`, `lod3MultiSurface`) bleibt identisch
+- Generic Attributes (`StringAttribute`) funktionieren identisch  
+- TerrainIntersectionCurve, Solid, MultiSurface — alles identisch
+- `.withDefaultPrefixes()` wählt automatisch die richtigen Namespace-URIs
+
+**Risiko:** Sehr gering — citygml4j abstrahiert alle Unterschiede.
+
+##### Mehrwert von CityGML 2.0 gegenüber 1.0
+
+CityGML 2.0 (OGC 12-019, veröffentlicht 2012) ist **keine reine Namespace-Umbenennung**,
+sondern bringt einige konkrete Neuerungen, die für unseren LoD2→LoD3-Anwendungsfall
+relevant sind:
+
+**1. `relativeToTerrain` — Lage zum Gelände (hoch relevant!)**
+
+CityGML 2.0 führt das standardisierte Attribut `relativeToTerrain` auf jedem `_CityObject`
+ein. Dieses Attribut existiert in CityGML 1.0 **nicht**. Die möglichen Werte sind:
+
+| Wert | Bedeutung |
+|------|-----------|
+| `entirelyAboveTerrain` | Gebäude liegt vollständig über Gelände |
+| `substantiallyAboveTerrain` | Gebäude liegt im Wesentlichen über Gelände |
+| `substantiallyAboveAndBelowTerrain` | Gebäude hat wesentliche Teile ober- und unterhalb |
+| `substantiallyBelowTerrain` | Gebäude liegt im Wesentlichen unter Gelände |
+| `entirelyBelowTerrain` | Gebäude liegt vollständig unter Gelände |
+
+**Relevanz für unsere Pipeline:** Der `BasementGenerator` weiß bereits, welche Gebäude
+ein Kellergeschoss erhalten. Diese Information könnte automatisch als `relativeToTerrain`
+gesetzt werden:
+- Gebäude **mit** Keller → `substantiallyAboveAndBelowTerrain`
+- Gebäude **ohne** Keller → `entirelyAboveTerrain` (bzw. `substantiallyAboveTerrain`)
+
+In CityGML 1.0 kann diese Information nur über GenericAttributes abgebildet werden — in
+CityGML 2.0 ist sie standardisiert und damit für alle Downstream-Systeme (FME, 3DCityDB,
+QGIS, etc.) ohne Sonderkonfiguration lesbar.
+
+```java
+// citygml4j API (bereits verfügbar):
+import org.citygml4j.core.model.core.RelativeToTerrain;
+
+building.setRelativeToTerrain(RelativeToTerrain.SUBSTANTIALLY_ABOVE_AND_BELOW_TERRAIN);
+```
+
+**Analog existiert `relativeToWater`** (Lage zum Gewässer) mit denselben Abstufungen.
+Für den Starkregenzwilling potenziell interessant, falls Überflutungsszenarien
+kategorisiert werden sollen.
+
+**2. `OuterFloorSurface` / `OuterCeilingSurface` (relevant für Balkone/Überhänge)**
+
+CityGML 1.0 kennt nur `FloorSurface` und `CeilingSurface` — beides sind implizit
+**Innen**flächen (Geschossböden und -decken). CityGML 2.0 ergänzt:
+- **`OuterFloorSurface`** — sichtbare Oberseite eines nach außen ragenden Bauteils
+  (z.B. die begehbare Oberfläche eines Balkons, Terrasse auf Flachdach)
+- **`OuterCeilingSurface`** — sichtbare Unterseite eines Überstands
+  (z.B. Unterseite eines Balkons von unten betrachtet, Vordach-Unterseite)
+
+**Relevanz:** Wenn die Pipeline in Zukunft um Balkone, Terrassen oder Vordächer erweitert
+wird, stellt CityGML 2.0 die korrekten Oberflächentypen bereit. In CityGML 1.0 müssten
+solche Flächen als generische `WallSurface` oder `RoofSurface` approximiert werden.
+
+```java
+// citygml4j API (bereits verfügbar):
+import org.citygml4j.core.model.construction.OuterFloorSurface;
+import org.citygml4j.core.model.construction.OuterCeilingSurface;
+
+// Balkonflächen korrekt modellieren:
+OuterFloorSurface balkonOben = new OuterFloorSurface();  // begehbare Fläche
+OuterCeilingSurface balkonUnten = new OuterCeilingSurface();  // Unterseite
+```
+
+**3. `GenericAttributeSet` — Gruppierung von Attributen**
+
+CityGML 1.0 erlaubt nur flache, einzelne GenericAttributes (`StringAttribute`,
+`DoubleAttribute`, etc.) auf einem CityObject. CityGML 2.0 ergänzt `GenericAttributeSet`,
+mit dem man zusammengehörige Attribute in einer benannten Gruppe bündeln kann.
+
+**Relevanz:** Der `StoreyGenerator` erzeugt aktuell mehrere flache GenericAttributes
+pro Geschoss (z.B. Geschosshöhe, Geschossnummer, Nutzung). Mit `GenericAttributeSet`
+könnten diese sinnvoll gruppiert werden:
+
+```xml
+<!-- CityGML 1.0 (aktuell): flache Attribute -->
+<gen:stringAttribute name="Geschoss_1_Nutzung">
+  <gen:value>Wohnen</gen:value>
+</gen:stringAttribute>
+<gen:doubleAttribute name="Geschoss_1_Hoehe">
+  <gen:value>2.8</gen:value>
+</gen:doubleAttribute>
+
+<!-- CityGML 2.0: gruppierte Attribute (besser strukturiert) -->
+<gen:genericAttributeSet name="Geschoss_1">
+  <gen:stringAttribute name="Nutzung">
+    <gen:value>Wohnen</gen:value>
+  </gen:stringAttribute>
+  <gen:doubleAttribute name="Hoehe">
+    <gen:value>2.8</gen:value>
+  </gen:doubleAttribute>
+</gen:genericAttributeSet>
+```
+
+```java
+// citygml4j API:
+GenericAttributeSet geschossSet = new GenericAttributeSet("Geschoss_1", List.of(
+    new AbstractGenericAttributeProperty(new StringAttribute("Nutzung", "Wohnen")),
+    new AbstractGenericAttributeProperty(new DoubleAttribute("Hoehe", 2.8))
+));
+```
+
+**4. Bridge- und Tunnel-Modul (nicht relevant)**
+
+CityGML 2.0 ergänzt eigenständige Module für Brücken und Tunnel. Für die LoD2→LoD3-
+Gebäude-Pipeline sind diese nicht relevant.
+
+##### Zusammenfassung CityGML 2.0 Mehrwert
+
+| Feature | CityGML 1.0 | CityGML 2.0 | Relevanz für Pipeline |
+|---------|-------------|-------------|----------------------|
+| `relativeToTerrain` | ❌ nicht vorhanden | ✅ standardisiert | **Hoch** — Keller-Info standardisiert |
+| `relativeToWater` | ❌ nicht vorhanden | ✅ standardisiert | Mittel — Starkregenbezug |
+| `OuterFloorSurface` | ❌ nicht vorhanden | ✅ eigener Typ | Mittel — für Balkone/Terrassen |
+| `OuterCeilingSurface` | ❌ nicht vorhanden | ✅ eigener Typ | Mittel — für Vordächer/Überhänge |
+| `GenericAttributeSet` | ❌ nur flache Attribute | ✅ gruppierbar | Niedrig — sauberer aber optional |
+| Bridge/Tunnel | ❌ nicht vorhanden | ✅ eigene Module | Keine — nicht im Scope |
+| LoD-Geometrie | LoD 0–4 | LoD 0–4 | Identisch |
+| BoundarySurfaces | Wall/Roof/Ground/Floor/Ceiling/Interior/Closure | + OuterFloor/OuterCeiling | Erweiterung |
+
+**Fazit CityGML 2.0:** Entgegen dem ersten Eindruck bietet CityGML 2.0 durchaus
+**konkreten Mehrwert** für unseren Anwendungsfall:
+
+1. **`relativeToTerrain`** ist die wichtigste Neuerung — sie erlaubt es, die ohnehin
+   vorhandene Keller-Information standardisiert zu kodieren, ohne auf GenericAttributes
+   zurückzugreifen. Für den Starkregenzwilling ist die Frage "liegt das Gebäude
+   wesentlich unter Gelände?" unmittelbar relevant.
+2. **`OuterFloorSurface`/`OuterCeilingSurface`** werden relevant, sobald Balkone und
+   Vordächer modelliert werden.
+3. Der **Migrationsaufwand bleibt bei 3 Zeilen** — und die Nutzung der neuen Features
+   kann schrittweise erfolgen (z.B. erst nur `relativeToTerrain` setzen, später
+   OuterFloor/OuterCeiling bei Balkon-Erweiterung).
+
+**Empfehlung:** CityGML 2.0 als Zwischenschritt ist sinnvoll, wenn man kurzfristig
+`relativeToTerrain` nutzen möchte, ohne direkt auf CityGML 3.0 umzusteigen. Der Aufwand
+ist minimal, der Mehrwert für Downstream-Systeme und Interoperabilität real.
+
+---
+
+#### Option B: Upgrade auf CityGML 3.0
+
+**Aufwand: 3 Zeilen für die Minimalversion, aber CityGML 3.0 bietet erhebliches
+Verbesserungspotenzial das ggf. mit umgesetzt werden sollte.**
+
+##### Minimales Upgrade (3 Zeilen)
+
+Wie bei 2.0 — in denselben 3 Dateien `v1_0` durch `v3_0` ersetzen. Das funktioniert,
+weil citygml4j intern bereits das CityGML-3.0-Objektmodell verwendet und beim Lesen von
+CityGML-1.0-Dateien automatisch auf das 3.0-Modell mappt.
+
+**Was passiert automatisch:**
+- Namespaces auf `*/3.0` umgestellt
+- LoD-Konzept: CityGML 3.0 kennt nur noch **LoD 0–3** (LoD4 entfallen!)
+  - `lod2MultiSurface` / `lod3MultiSurface` → bleiben erhalten ✅
+  - `lod2Solid` / `lod3Solid` → bleiben erhalten ✅  
+  - `lod3TerrainIntersectionCurve` → bleibt erhalten ✅
+- Generic Attributes → funktionieren identisch ✅
+- BuildingPart → bleibt erhalten (CityGML 3.0 hat weiterhin `consistsOfBuildingPart`) ✅
+- XLinks → funktionieren identisch ✅
+
+**Was in CityGML 3.0 deprecated/entfallen ist:**
+- **LoD4** ist komplett entfallen — stattdessen wird Innenraum über `BuildingRoom` modelliert
+- Die alte `Opening`-Klasse (CityGML 1.0/2.0: `bldg:opening` → `bldg:Window`/`bldg:Door`)
+  wurde durch das **FillingSurface/FillingElement-Konzept** ersetzt (siehe unten)
+- `lod4Solid`, `lod4MultiSurface`, `lod4MultiCurve` → nur noch über `DeprecatedProperties`
+
+##### Direkt von 1.0 auf 3.0?
+
+**Ja, ohne Umweg über 2.0.** citygml4j mappt intern direkt von jedem Format auf das
+3.0-Modell. Der Zwischenschritt über 2.0 wäre unnötig und bringt keinen Vorteil.
+Empfehlung: Direkt auf 3.0 gehen, wenn man upgradet.
+
+---
+
+### Neue Möglichkeiten mit CityGML 3.0
+
+CityGML 3.0 hat das Building-Modul grundlegend umstrukturiert. Das eröffnet für
+die Pipeline erhebliches Verbesserungspotenzial:
+
+#### 1. Storey (Geschosse als First-Class-Objekte)
+
+**Aktuell (CityGML 1.0):** Geschosse werden als `FloorSurface`/`CeilingSurface` mit
+Generic-Attributen (`Geschoss=EG`, `Geschoss=1.OG`) repräsentiert. Es gibt kein natives
+`BuildingStorey`-Element.
+
+**CityGML 3.0:** Das `Storey`-Objekt ist ein vollwertiges Element im Building-Modul:
+
+```java
+// citygml4j API (bereits verfügbar in 3.2.7!)
+import org.citygml4j.core.model.building.Storey;
+import org.citygml4j.core.model.building.StoreyProperty;
+
+Storey storey = new Storey();
+storey.setId("Building_123_EG");
+storey.setSortKey(0.0);                    // Sortierung: UG=-1, EG=0, 1.OG=1, ...
+storey.setClassifier(new Code("EG"));      // Geschoss-Bezeichnung
+
+// Geschoss kennt eigene Grenzen (Floor, Ceiling, Wände)
+storey.addBoundary(new AbstractSpaceBoundaryProperty(floorSurface));
+storey.addBoundary(new AbstractSpaceBoundaryProperty(ceilingSurface));
+storey.addBoundary(new AbstractSpaceBoundaryProperty(wallSegment));
+
+// Geschoss kann BuildingInstallations enthalten
+storey.getBuildingInstallations().add(new BuildingInstallationProperty(treppe));
+
+// Geschoss dem Gebäude zuordnen
+building.getBuildingSubdivisions().add(new AbstractBuildingSubdivisionProperty(storey));
+```
+
+**Vorteile:**
+- Geschosse sind als eigene Objekte abfragbar (z.B. "zeige mir alle EG-Grundrisse")
+- `sortKey` ermöglicht automatische Sortierung der Geschosse
+- Jedes Geschoss kann eigene Geometrie, Installationen und Räume haben
+- Kein Workaround über Generic Attributes mehr nötig
+
+**Aufwand:** ca. 1–2 Tage im `StoreyGenerator` — statt `FloorSurface`+`CeilingSurface`
+mit `Geschoss`-Attribut werden echte `Storey`-Objekte erzeugt und über
+`buildingSubdivisions` dem Gebäude zugeordnet.
+
+#### 2. BuildingRoom (Raum-Modellierung)
+
+**Aktuell:** Nicht vorhanden.
+
+**CityGML 3.0:** Räume können als eigenständige Objekte modelliert werden:
+
+```java
+import org.citygml4j.core.model.building.BuildingRoom;
+import org.citygml4j.core.model.building.BuildingRoomProperty;
+import org.citygml4j.core.model.building.RoomHeight;
+
+BuildingRoom room = new BuildingRoom();
+room.setId("Building_123_EG_Room_1");
+room.setClassifier(new Code("habitation"));
+room.getRoomHeights().add(new RoomHeightProperty(
+    new RoomHeight(/* status, lowReference, highReference, value */)
+));
+
+// Raum hat eigene Grenzen
+room.addBoundary(floorSurface);
+room.addBoundary(ceilingSurface);
+room.addBoundary(interiorWallSurface);  // Neu in CityGML 3.0!
+room.addBoundary(doorSurface);          // Tür als Raumgrenze
+
+// Raum dem Geschoss zuordnen
+storey.getBuildingRooms().add(new BuildingRoomProperty(room));
+```
+
+**Nutzen:** Relevant wenn Innenraum-Modellierung gewünscht ist (z.B. für
+Energiesimulation, Facility Management). Der `ModuleParameters`-Loader hat bereits
+einen `Interior`-Abschnitt in den JSON-Dateien.
+
+**Aufwand:** ca. 3–5 Tage als neuer Pipeline-Schritt.
+
+#### 3. InteriorWallSurface (Innenwände)
+
+**Aktuell:** Nicht vorhanden.
+
+**CityGML 3.0:** Innenwände sind ein eigener Oberflächentyp:
+
+```java
+import org.citygml4j.core.model.construction.InteriorWallSurface;
+
+InteriorWallSurface interiorWall = new InteriorWallSurface();
+interiorWall.setLod3MultiSurface(multiSurfaceProperty);
+```
+
+**Nutzen:** Innenwände unterteilen Räume und sind für Starkregensimulation relevant
+(Strömungspfade im Gebäude).
+
+#### 4. Fenster & Türen (FillingSurface-Konzept)
+
+In CityGML 1.0/2.0 werden Fenster und Türen als `Opening`-Elemente modelliert, die
+direkt an der `WallSurface` hängen. CityGML 3.0 führt ein neues Konzept ein:
+
+**CityGML 1.0/2.0 (alt):**
+```xml
+<bldg:WallSurface>
+  <bldg:opening>
+    <bldg:Window gml:id="win_1">
+      <bldg:lod3MultiSurface>...</bldg:lod3MultiSurface>
+    </bldg:Window>
+  </bldg:opening>
+</bldg:WallSurface>
+```
+
+**CityGML 3.0 (neu) — zwei Ebenen:**
+
+1. **FillingElement** (`Door`, `Window`) — das physische Objekt (kann z.B. Attribute
+   wie Material, U-Wert haben):
+```java
+import org.citygml4j.core.model.construction.Window;
+import org.citygml4j.core.model.construction.Door;
+
+// Window/Door sind FillingElements (physische Objekte)
+Window window = new Window();
+window.setId("Building_123_Win_1");
+window.setClassifier(new Code("isolierverglasung"));
+
+Door door = new Door();
+door.setId("Building_123_Door_1");
+door.getAddresses().add(addressProperty);  // Tür kann Adresse haben!
+```
+
+2. **FillingSurface** (`WindowSurface`, `DoorSurface`) — die geometrische Grenze
+   einer ConstructionSurface (Wand):
+```java
+import org.citygml4j.core.model.construction.WindowSurface;
+import org.citygml4j.core.model.construction.DoorSurface;
+
+// WindowSurface/DoorSurface sind FillingSurfaces (Loch in der Wand)
+WindowSurface winSurface = new WindowSurface();
+winSurface.setLod3MultiSurface(windowGeometry);
+
+// FillingSurfaces werden der WallSurface zugeordnet
+wallSurface.getFillingSurfaces().add(
+    new AbstractFillingSurfaceProperty(winSurface)
+);
+```
+
+**Klassenhierarchie in citygml4j 3.2.7:**
+```
+AbstractConstructionSurface (WallSurface, RoofSurface, GroundSurface, ...)
+  └─ getFillingSurfaces() → List<AbstractFillingSurfaceProperty>
+       ├─ WindowSurface   (Loch in der Wand → Fentergeometrie)
+       └─ DoorSurface     (Loch in der Wand → Türgeometrie)
+
+AbstractFillingElement (extends AbstractOccupiedSpace)
+  ├─ Window   (physisches Fenster-Objekt mit Attributen)
+  └─ Door     (physische Tür mit Adresse, Attributen)
+```
+
+**Nutzen für die Pipeline:**
+- Schritt 4 (Fenster) und Schritt 5 (Türen) sollten direkt mit dem CityGML-3.0-Konzept
+  implementiert werden → `WindowSurface` an `WallSurface.getFillingSurfaces()` hängen
+- Bei CityGML 1.0/2.0-Ausgabe mappt citygml4j automatisch zurück auf das alte
+  `Opening`-Konzept
+- Vorteil: Ein Code, der alle Versionen bedient
+
+**Aufwand:** Kein Mehraufwand bei der Implementierung von Schritt 4/5 — die citygml4j-API
+ist ohnehin CityGML-3.0-nativ.
+
+#### 5. BuildingConstructiveElement
+
+**CityGML 3.0 exklusiv:** Konstruktive Elemente wie Stützen, Träger, Fundamente:
+
+```java
+import org.citygml4j.core.model.building.BuildingConstructiveElement;
+
+BuildingConstructiveElement stuetze = new BuildingConstructiveElement();
+stuetze.setClassifier(new Code("column"));
+stuetze.setLod3MultiSurface(columnGeometry);
+building.getBuildingConstructiveElements().add(
+    new BuildingConstructiveElementProperty(stuetze)
+);
+```
+
+**Nutzen:** Relevant für detaillierte Gebäudemodelle (BIM-Integration).
+
+#### 6. Elevation (Höhenbezugspunkte)
+
+**CityGML 3.0 exklusiv:** Gebäude und Geschosse können explizite Höhenbezugspunkte haben:
+
+```java
+import org.citygml4j.core.model.construction.Elevation;
+
+// Höhenbezugspunkte am Gebäude (z.B. für H_DGM)
+Elevation elev = new Elevation();
+elev.setElevationReference(new Code("lowestGroundPoint"));
+elev.setElevationValue(new DirectPosition(List.of(113.88)));
+building.getElevations().add(new ElevationProperty(elev));
+```
+
+**Nutzen:** Der `BasementGenerator` berechnet bereits `H_DGM` (Geländehöhe am Gebäude).
+Mit CityGML 3.0 könnte diese Information als standardisiertes `Elevation`-Objekt statt
+als Generic Attribute gespeichert werden.
+
+#### 7. storeyHeightsAboveGround / storeyHeightsBelowGround
+
+**CityGML 3.0 (auch 2.0):** Gebäude können die Höhen der einzelnen Geschosse als 
+geordnete Liste speichern:
+
+```java
+// Geschosshöhen als MeasureOrNilReasonList
+MeasureOrNilReasonList heights = new MeasureOrNilReasonList();
+heights.setValue(List.of("2.8", "2.6", "2.6", "2.4"));  // EG, 1.OG, 2.OG, DG
+building.setStoreyHeightsAboveGround(heights);
+
+MeasureOrNilReasonList belowHeights = new MeasureOrNilReasonList();
+belowHeights.setValue(List.of("2.5"));  // Keller
+building.setStoreyHeightsBelowGround(belowHeights);
+```
+
+**Nutzen:** Die Pipeline berechnet diese Werte bereits aus den Baukörpermodulen
+(`GF.roomHeight`, `BA.height`). Aktuell werden sie nur intern verwendet — mit CityGML 3.0
+könnten sie standardisiert am Gebäude-Objekt gespeichert werden.
+
+**Aufwand:** ca. 0,5 Tage — die Werte existieren bereits, müssen nur als Properties
+gesetzt werden.
+
+---
+
+### Upgrade-Empfehlung
+
+| Pfad | Aufwand | Mehrwert |
+|------|---------|----------|
+| **1.0 → 2.0** | 5 Minuten (3 Zeilen) | Kein funktionaler Mehrwert |
+| **1.0 → 3.0 (minimal)** | 5 Minuten (3 Zeilen) | Modernes Format, zukunftssicher |
+| **1.0 → 3.0 + Storey** | 1–2 Tage | Echte Geschoss-Objekte statt Workarounds |
+| **1.0 → 3.0 + Storey + Elevation + Heights** | 2–3 Tage | Vollständiges semantisches Modell |
+| **1.0 → 3.0 + Storey + Room** | 4–6 Tage | Innenraum-Modellierung |
+
+**Empfohlener Upgrade-Pfad:** Direkt 1.0 → 3.0. Kein Umweg über 2.0 nötig.
+
+**Empfohlener Zeitpunkt:** Vor Implementierung von Schritt 4 (Fenster) und Schritt 5
+(Türen), da diese direkt mit dem neuen `FillingSurface`-Konzept implementiert werden
+sollten.
+
+**Abwärtskompatibilität:** Die Pipeline kann mit CityGML 3.0 *auch weiterhin
+CityGML-1.0-Dateien lesen*. Nur die Ausgabe ändert sich. citygml4j mappt automatisch
+zwischen den Versionen.
