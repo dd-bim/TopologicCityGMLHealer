@@ -1,0 +1,168 @@
+﻿{
+      "BA": {
+            "height": 2.22,
+            "CeHe": 0.23,
+            "window": {
+                  "HDistWaWi": 0.8,
+                  "VDistFlWi": 0.5,
+                  "HDistWiWi": 1.5,
+                  "WiLen": 0.6,
+                  "WiHe": 0.32,
+                  "HDistMinWaWi": 0.5
+            },
+            "door": {
+                  "DoHe": NaN,
+                  "DoLen": NaN,
+                  "HDistDoWa": NaN
+            }
+      },
+      "GF": {
+            "height": 2.58,
+            "heightGr": 1.3,
+            "CeHe":0.22,
+            "window": {
+                  "HDistMinWaWi": 0.6,
+                  "HDistWaWi": 0.82,
+                  "HDistWiWi": 1.24,
+                  "VDistFlWi": 1.00,
+                  "HDistDoWi": 0.82,
+                  "WiLen": 1.6,
+                  "WiHe": 1.3
+            },
+            "door":{ 
+                  "DoHe": 2.15,
+                  "DoLen": 1.64,
+                  "HDistDoWa": 6.4
+            }
+      },
+      "UF": {
+            "extPolyHeight": true,
+            "height": 2.58,
+            "CeHe":0.22,
+            "window": {
+                  "HDistMinWaWi": 0.6,
+                  "HDistWaWi": 0.82,
+                  "HDistWiWi": 1.24,
+                  "VDistFlWi": 1.00,
+                  "WiLen": 1.6,
+                  "WiHe": 1.3
+            }
+      },
+      "RO": {
+            "window": {
+                  "HDistWaWi": 5.35,
+                  "VDistFlWi": 5.45,
+                  "HDistWiWi": 10,
+                  "WiHe": 1.45,
+                  "WiLen": 1.13,
+                  "HDistMinWaWi": 1
+            },
+            "shape": {
+                  "Typ": 5,
+                  "RiHe": 15.65,
+                  "HSiTi": NaN,
+                  "VSiTi": NaN,
+                  "HFrTi": NaN,
+                  "VFrTi": NaN
+            }
+      },
+      "UT": {
+            "HDistWaPo": 1.0,
+            "HDistWaPo2": 1.0,
+            "VDistFlPo": -0.5,
+            "SiX": 0.5,
+            "SiY": 0.5,
+            "SiZ": 0.5,
+            "DoUF": false,
+            "DoGF": true,
+            "DoBA": true,
+            "NrUt": 1
+      },
+      "GA": {
+            "GaLen": 3.72,
+            "GaWid": 1.12,
+            "GaHe": 0.95,
+            "HDistWaGa": 2.43,
+            "HDistGaGa": 0.01,
+            "HDistMinWaGa": 0.5,
+            "HDistWiGa": 0.6,
+            "WiLen": 1.6,
+            "WiHe": 2.2,
+            "HDistWaWi": 3.22,
+            "DistWiGa": 0.68,
+            "GaPa": "WiGaGaWi"
+      },
+      "IN": {
+            "HIn": 3,
+            "VIn": 4,
+            "MinInSi": 7
+      },
+      "FL": {
+            "IDistStWa": 0.3,
+            "StLen": 2,
+            "StWid": 3
+      },
+      "BU": {
+                  "BA": true,
+                  "GFRo": false,
+                  "BuLen": 12.15,
+                  "BuWid": 11.66,
+                  "BuHe": 15.65,
+                  "RoSh": 5,
+                  "BaDo": false,
+                  "EnDi": [ 4 ],
+                  "SID": "MR6"
+      },
+      "FD": {
+            "WallAttr": {
+                  "typ": "AW-STB1",
+                  "description": "Stahlbetonwände",
+                  "vulnerability": 8.9
+            },
+            "CeilingAttr": {
+                  "typ": "D-STB1",
+                  "description": "Stahlbetonmassivplatte",
+                  "vulnerability": 8.6
+            },
+            "Window": {
+                  "typ": "F-KS",
+                  "description": "Kunststofffenster, Wärmeschutzverglasung",
+                  "vulnerability": 4.4
+            },
+            "FacadeAttr": {
+                  "typ": "FA-B",
+                  "description": "Betonfertigteile mit Kerndämmung",
+                  "vulnerability": 2.2
+            },
+            "Groundsurface": {
+                  "typ": "FB-AE1",
+                  "description": "Anhydritestrich auf Gummischrot",
+                  "vulnerability": NaN
+            },
+            "FoundationAttr": {
+                  "typ": "G-B1",
+                  "description": "Bodenplatte",
+                  "vulnerability": NaN
+            },
+            "Interiorwallsurface": {
+                  "typ": "IW-STB1",
+                  "description": "Stahlbetonwand",
+                  "vulnerability": 8.8
+            },
+            "Door": {
+                  "typ": "T-H",
+                  "description": "Kunststofftür",
+                  "vulnerability": 4.7
+            },
+            "GalleryDoor": {
+                  "typ": "F-KS",
+                  "description": "Kunststofffenster, Wärmeschutzverglasung",
+                  "vulnerability": 4.4
+            },
+            "Closuresurface": {
+                  "typ": "TR-BL",
+                  "description": "Stahlbetontreppe",
+                  "vulnerability": 9.2
+            }
+      }
+}

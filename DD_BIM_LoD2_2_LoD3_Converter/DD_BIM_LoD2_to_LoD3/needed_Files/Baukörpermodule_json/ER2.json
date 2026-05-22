@@ -1,0 +1,154 @@
+﻿{
+      "BA": {
+            "height": 2.2,
+            "CeHe": 0.39,
+            "window": {
+                  "HDistWaWi": null,
+                  "VDistFlWi": null,
+                  "HDistWiWi": null,
+                  "WiLen": null,
+                  "WiHe": null,
+                  "HDistMinWaWi": null
+            },
+            "door": {
+                  "DoHe": null,
+                  "DoLen": null,
+                  "HDistDoWa": null
+            }
+      },
+      "GF": {
+            "height": 2.64,
+            "heightGr": 0.1,
+            "CeHe":0.27,
+            "window": {
+                  "HDistMinWaWi": 0.8,
+                  "HDistWaWi": 1.0,
+                  "HDistWiWi": 1.0,
+                  "VDistFlWi": 0.8,
+                  "HDistDoWi": 1.55,
+                  "WiLen": 1.0,
+                  "WiHe": 1.4
+            },
+            "door": { 
+                  "DoHe": 2.3,
+                  "DoLen": 1.1,
+                  "HDistDoWa": 1.1
+            }
+      },
+      "UF": {
+            "height": 2.69,
+            "CeHe":0.27,
+            "window": {
+                  "HDistMinWaWi": 0.8,
+                  "HDistWaWi": 1.0,
+                  "HDistWiWi": 1.0,
+                  "VDistFlWi": 0.8,
+                  "WiLen": 1.0,
+                  "WiHe": 1.4
+            }
+      },
+      "RO": {
+            "window": {
+                  "HDistWaWi": null,
+                  "VDistFlWi": null,
+                  "HDistWiWi": null,
+                  "WiHe": null,
+                  "WiLen": null,
+                  "HDistMinWaWi": null
+            },
+            "shape": {
+                  "Typ": 1,
+                  "RiHe": 12.46,
+                  "HSiTi": null,
+                  "VSiTi": null,
+                  "HFrTi": null,
+                  "VFrTi": null
+            }
+      },
+      "UT": {
+            "HDistWaPo": 0.6,
+            "VDistFlPo": 0.8
+      },
+      "GA": {
+            "GaLen": null,
+            "GaWid": null,
+            "GaHe": null,
+            "HDistWaGa": null,
+            "HDistGaGa": null,
+            "HDistMinWaGa": null,
+            "HDistWiGa": null,
+            "WiLen": null,
+            "WiHe": null,
+            "HDistWaWi": null,
+            "DistWiGa": null,
+            "GaPa": null
+      },
+      "IN": {
+            "HIn": 2,
+            "VIn": 3,
+            "MinInSi": 7
+      },
+      "FL": {
+            "IDistStWa": 0.0,
+            "StLen": 1.1,
+            "StWid": 3.9
+      },
+      "BU": {
+                  "BA": true,
+                  "GFRo": false,
+                  "BuLen": 8.15,
+                  "BuWid": 15.85,
+                  "BuHe": 6.00,
+                  "RoSh": 1,
+                  "BaDo": false,
+                  "EnDi": [ 1 ],
+                  "SID": "ER2"
+      },
+      "FD": {
+            "WallAttr": {
+                  "typ": "AW-B1",
+                  "description": "Bruchsteinmauerwerk",
+                  "vulnerability": 7.3
+            },
+            "CeilingAttr": {
+                  "typ": "D-PK1",
+                  "description": "Tonnengewölbe, Bruchsteinmauerwerk",
+                  "vulnerability": null
+            },
+            "Window": {
+                  "typ": "F-H",
+                  "description": "Holzfenster, Wärmeschutzverglasung",
+                  "vulnerability": 4.2
+            },
+            "FacadeAttr": {
+                  "typ": "FA-P1",
+                  "description": "Putzfassade",
+                  "vulnerability": 5.9
+            },
+            "Groundsurface": {
+                  "typ": "FB-SE3",
+                  "description": "schwimmender Estrich auf Wärme- bzw. Trittschalldämmung",
+                  "vulnerability": 2.2
+            },
+            "FoundationAttr": {
+                  "typ": "G-S1",
+                  "description": "Streifenfundamente, Bruchstein",
+                  "vulnerability": null
+            },
+            "Interiorwallsurface": {
+                  "typ": "IW-B1",
+                  "description": "Bruchsteinmauerwerk",
+                  "vulnerability": 7.3
+            },
+            "Door": {
+                  "typ": "T-H",
+                  "description": "Holztür",
+                  "vulnerability": 3.2
+            },
+            "Closuresurface": {
+                  "typ": "TR-H1",
+                  "description": "Holztreppe",
+                  "vulnerability": 5.6
+            }
+      }
+}

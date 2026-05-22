@@ -1,0 +1,155 @@
+﻿
+{
+      "BA": {
+            "height": null,
+            "CeHe":null,
+            "window": {
+                  "HDistWaWi": null,
+                  "VDistFlWi": null,
+                  "HDistWiWi": null,
+                  "WiLen": null,
+                  "WiHe": null,
+                  "HDistMinWaWi": null
+            },
+            "door": {
+                  "DoHe": null,
+                  "DoLen": null,
+                  "HDistDoWa": null
+            }
+      },
+      "GF": {
+            "height": 2.65,
+            "heightGr": 0.15,
+            "CeHe":0.35,
+            "window": {
+                  "HDistMinWaWi": 1.5,
+                  "HDistWaWi": 2.15,
+                  "HDistWiWi": 2.9,
+                  "VDistFlWi": 0.65,
+                  "HDistDoWi": 2.15,
+                  "WiLen": 2.95,
+                  "WiHe": 1.35
+            },
+            "door": {
+                  "DoHe": 2.0,
+                  "DoLen": 1.0,
+                  "HDistDoWa": 6.35
+            }
+      },
+      "UF": {
+            "height": 2.3,
+            "CeHe":0.35,
+            "window": {
+                  "HDistMinWaWi": 1.5,
+                  "HDistWaWi": 2.15,
+                  "HDistWiWi": 2.9,
+                  "VDistFlWi": 0.65,
+                  "WiLen": 2.15,
+                  "WiHe": 1.35
+            }
+      },
+      "RO": {
+            "window": {
+                  "HDistWaWi": null,
+                  "VDistFlWi": null,
+                  "HDistWiWi": null,
+                  "WiHe": null,
+                  "WiLen": null,
+                  "HDistMinWaWi": null
+            },
+            "shape": {
+                  "Typ": 2,
+                  "RiHe": 5.85,
+                  "HSiTi": null,
+                  "VSiTi": null,
+                  "HFrTi": null,
+                  "VFrTi": null
+            }
+      },
+      "UT": {
+            "HDistWaPo": 0.6,
+            "VDistFlPo": 0.8
+      },
+      "GA": {
+            "GaLen": null,
+            "GaWid": null,
+            "GaHe": null,
+            "HDistWaGa": null,
+            "HDistGaGa": null,
+            "HDistMinWaGa": null,
+            "HDistWiGa": null,
+            "WiLen": null,
+            "WiHe": null,
+            "HDistWaWi": null,
+            "DistWiGa": null,
+            "GaPa": null
+      },
+      "IN": {
+            "HIn": 3,
+            "VIn": 2,
+            "MinInSi": 7
+      },
+      "FL": {
+            "IDistStWa": 6.1,
+            "StLen": 1.35,
+            "StWid": 2.45
+      },
+      "BU": {
+                  "BA": false,
+                  "GFRo": false,
+                  "BuLen": 28.7,
+                  "BuWid": 6.75,
+                  "BuHe": 5.35,
+                  "RoSh": 2,
+                  "BaDo": false,
+                  "EnDi": [ 1 ],
+                  "SID": "HH4"
+      },
+      "FD": {
+            "WallAttr": {
+                  "typ": "AW-Z1",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 8.3
+            },
+            "CeilingAttr": {
+                  "typ": "D-HB3",
+                  "description": "Holzbalkendecke, Einschubdecke",
+                  "vulnerability": 4.0
+            },
+            "Window": {
+                  "typ": "F-KS3",
+                  "description": "Kunststofffenster, Isolierverglasung",
+                  "vulnerability": 4.4
+            },
+            "FacadeAttr": {
+                  "typ": "FA-P1",
+                  "description": "Putzfassade",
+                  "vulnerability": 5.9
+            },
+            "Groundsurface": {
+                  "typ": "FB-SE1",
+                  "description": "Schwimmender Estrich auf Schüttung",
+                  "vulnerability": 2.2
+            },
+            "FoundationAttr": {
+                  "typ": "G-S1",
+                  "description": "Streifenfundamente, Bruchstein",
+                  "vulnerability": null
+            },
+            "Interiorwallsurface": {
+                  "typ": "IW-Z1",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 7.3
+            },
+            "Door": {
+                  "typ": "T-K1",
+                  "description": "Kunststofftür",
+                  "vulnerability": 4.7
+            },
+            "Closuresurface": {
+                  "typ": "TR-B1",
+                  "description": "Betonstufen",
+                  "vulnerability": 9.2
+            }
+      }
+}

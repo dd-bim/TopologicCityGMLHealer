@@ -1,0 +1,170 @@
+﻿{
+      "BA": {
+            "height": 2.02,
+            "CeHe": 0.23,
+            "window": {
+                  "HDistWaWi": 2.4,
+                  "VDistFlWi": 0.3,
+                  "HDistWiWi": 2.2,
+                  "WiLen": 0.8,
+                  "WiHe": 0.4,
+                  "HDistMinWaWi": 0.7
+            },
+            "door": {
+                  "DoHe": 1.9,
+                  "DoLen": 0.85,
+                  "HDistDoWa": 3.0
+            }
+      },
+      "GF": {
+            "height": 2.54,
+            "heightGr": 1.08,
+            "CeHe":0.26,
+            "window": {
+                  "HDistMinWaWi": 0.6,
+                  "HDistWaWi": 2.25,
+                  "HDistWiWi": 2.2,
+                  "VDistFlWi": 0.8,
+                  "HDistDoWi": 1.5,
+                  "WiLen": 1.1,
+                  "WiHe": 1.4
+            },
+            "door": {
+                  "DoHe": 2.1,
+                  "DoLen": 1.1,
+                  "HDistDoWa": 9.3
+            }
+      },
+      "UF": {
+            "extPolyHeight": true,
+            "height": 2.3,
+            "CeHe":0.26,
+            "window": {
+                  "HDistMinWaWi": 0.6,
+                  "HDistWaWi": 2.25,
+                  "HDistWiWi": 2.2,
+                  "VDistFlWi": 0.8,
+                  "WiLen": 1.1,
+                  "WiHe": 1.4
+                  
+            }
+      },
+      "RO": {
+            "window": {
+                  "HDistWaWi": NaN,
+                  "VDistFlWi": NaN,
+                  "HDistWiWi": NaN,
+                  "WiHe": NaN,
+                  "WiLen": NaN,
+                  "HDistMinWaWi": NaN
+            },
+            "shape": {
+                  "Typ": 4,
+                  "RiHe": 12.83,
+                  "HSiTi": NaN,
+                  "VSiTi": NaN,
+                  "HFrTi": 5.64,
+                  "VFrTi": 4.68
+            }
+      },
+      "UT": {
+            "HDistWaPo": 1.0,
+            "HDistWaPo2": 1.0,
+            "VDistFlPo": -0.5,
+            "SiX": 0.5,
+            "SiY": 0.5,
+            "SiZ": 0.5,
+            "DoUF": false,
+            "DoGF": true,
+            "DoBA": true,
+            "NrUt": 1
+      },
+      "GA": {
+            "GaLen": NaN,
+            "GaWid": NaN,
+            "GaHe": NaN,
+            "HDistWaGa": NaN,
+            "HDistGaGa": NaN,
+            "HDistMinWaGa": NaN,
+            "HDistWiGa": NaN,
+            "WiLen": NaN,
+            "WiHe": NaN,
+            "HDistWaWi": NaN,
+            "DistWiGa": NaN,
+            "GaPa": null
+      },
+      "IN": {
+            "HIn": 5,
+            "VIn": 3,
+            "MinInSi": 7
+      },
+      "FL": {
+            "IDistStWa": 0.2,
+            "StLen": 2.5,
+            "StWid": 2.8
+      },
+      "BU": {
+                  "BA": true,
+                  "GFRo": false,
+                  "BuLen": 15.1,
+                  "BuWid": 19.6,
+                  "BuHe": 8.2,
+                  "RoSh": 4,
+                  "BaDo": true,
+                  "EnDi": [ 4  ],
+                  "SID": "ME4"
+            
+      },
+      "FD": {
+            "WallAttr": {
+                  "typ": "AW-Z",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 8.3
+            },
+            "CeilingAttr": {
+                  "typ": "D-H2",
+                  "description": "Steindecke",
+                  "vulnerability": 4.9
+            },
+            "Window": {
+                  "typ": "F-K1",
+                  "description": "Kunststofffenster",
+                  "vulnerability": 4.4
+            },
+            "FacadeAttr": {
+                  "typ": "FA-P2",
+                  "description": "Putzfassade, im Sockelbereich Natursteinplatten",
+                  "vulnerability": 5.9
+            },
+            "Groundsurface": {
+                  "typ": "FB-H",
+                  "description": "Lagerhölzer und Schüttung",
+                  "vulnerability": NaN
+            },
+            "FoundationAttr": {
+                  "typ": "G-S2",
+                  "description": "Streifenfundamente, Naturstein",
+                  "vulnerability": NaN
+            },
+            "Interiorwallsurface": {
+                  "typ": "IW-Z",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 8.1
+            },
+            "Door": {
+                  "typ": "T-H1",
+                  "description": "Holztür",
+                  "vulnerability": 3.2
+            },
+            "GalleryDoor": {
+                  "typ": "F-K1",
+                  "description": "Kunststofffenster",
+                  "vulnerability": 4.4
+            },
+            "Closuresurface": {
+                  "typ": "TR-B1",
+                  "description": "Betonstufen",
+                  "vulnerability": 9.2
+            }
+      }
+}

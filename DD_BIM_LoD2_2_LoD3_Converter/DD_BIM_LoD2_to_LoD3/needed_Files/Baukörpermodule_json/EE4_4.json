@@ -1,0 +1,168 @@
+﻿{
+      "BA": {
+            "height": 1.9,
+            "CeHe":0.24,
+            "window": {
+                  "HDistWaWi": 1.5,
+                  "VDistFlWi": 0.0,
+                  "HDistWiWi": 2.55,
+                  "WiLen": 0.4,
+                  "WiHe": 0.3,
+                  "HDistMinWaWi": 0.7
+            },
+            "door": {
+                  "DoHe": NaN,
+                  "DoLen": NaN,
+                  "HDistDoWa": NaN
+            }
+      },
+      "GF": {
+            "height": 2.4,
+            "heightGr": 0.54,
+            "CeHe":0.28,
+            "window": {
+                  "HDistMinWaWi": 0.5,
+                  "HDistWaWi": 1.2,
+                  "HDistWiWi": 1.65,
+                  "VDistFlWi": 0.8,
+                  "HDistDoWi": 2,
+                  "WiLen": 1.5,
+                  "WiHe": 1.05
+            },
+            "door": {
+                  "DoHe": 1.9,
+                  "DoLen": 0.9,
+                  "HDistDoWa": 1.4
+            }
+      },
+      "UF": { 
+            "extPolyHeight": true,
+            "height": 2.2,
+            "CeHe":0.2,
+            "window": {
+                  "HDistMinWaWi": 1.0,
+                  "HDistWaWi": 1.5,
+                  "HDistWiWi": 1.9,
+                  "VDistFlWi": 0.8,
+                  "WiLen": 0.95,
+                  "WiHe": 0.95
+            }
+      },
+      "RO": {
+            "window": {
+                  "HDistWaWi": NaN,
+                  "VDistFlWi": NaN,
+                  "HDistWiWi": NaN,
+                  "WiHe": NaN,
+                  "WiLen": NaN,
+                  "HDistMinWaWi": NaN
+            },
+            "shape": {
+                  "Typ": 1,
+                  "RiHe": 7.73,
+                  "HSiTi": NaN,
+                  "VSiTi": NaN,
+                  "HFrTi": NaN,
+                  "VFrTi": NaN
+            }
+      },
+      "UT": {
+            "HDistWaPo": 1.0,
+            "HDistWaPo2": 1.0,
+            "VDistFlPo": -0.5,
+            "SiX": 0.5,
+            "SiY": 0.5,
+            "SiZ": 0.5,
+            "DoUF": false,
+            "DoGF": true,
+            "DoBA": true,
+            "NrUt": 1
+      },
+      "GA": {
+            "GaLen": NaN,
+            "GaWid": NaN,
+            "GaHe": NaN,
+            "HDistWaGa": NaN,
+            "HDistGaGa": NaN,
+            "HDistMinWaGa": NaN,
+            "HDistWiGa": NaN,
+            "WiLen": NaN,
+            "WiHe": NaN,
+            "HDistWaWi": NaN,
+            "DistWiGa": NaN,
+            "GaPa": null
+      },
+      "IN": {
+            "HIn": 2,
+            "VIn": 2,
+            "MinInSi": 7
+      },
+      "FL": {
+            "IDistStWa": 0.1,
+            "StLen": 1,
+            "StWid": 3.3
+      },
+      "BU": {
+                  "BA": true,
+                  "GFRo": false,
+                  "BuLen": 6.8,
+                  "BuWid": 7.2,
+                  "BuHe": 3.95,
+                  "RoSh": 1,
+                  "BaDo": false,
+                  "EnDi": [ 2 ],
+                  "SID": "EE4"
+      },
+      "FD": {
+            "WallAttr": {
+                  "typ": "AW-Z1",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 7.3
+            },
+            "CeilingAttr": {
+                  "typ": "D-H1",
+                  "description": "Stahlbetonhohldielendecke",
+                  "vulnerability": 8.2
+            },
+            "Window": {
+                  "typ": "F-H1",
+                  "description": "Holzsprossenfenster, Wärmeschutzverglasung",
+                  "vulnerability": 4.2
+            },
+            "FacadeAttr": {
+                  "typ": "FA-P1",
+                  "description": "Putzfassade",
+                  "vulnerability": 5.9
+            },
+            "Groundsurface": {
+                  "typ": "FB-SE1",
+                  "description": "Schwimmender Estrich auf Schüttung",
+                  "vulnerability": 2.2
+            },
+            "FoundationAttr": {
+                  "typ": "G-S4",
+                  "description": "Streifenfundamente",
+                  "vulnerability": null
+            },
+            "Interiorwallsurface": {
+                  "typ": "IW-Z1",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 7.3
+            },
+            "Door": {
+                  "typ": "T-H1",
+                  "description": "Holztür",
+                  "vulnerability": 3.2
+            },
+            "GalleryDoor": {
+                  "typ": "F-H1",
+                  "description": "Holzsprossenfenster, Wärmeschutzverglasung",
+                  "vulnerability": 4.2
+            },
+            "Closuresurface": {
+                  "typ": "TR-H1",
+                  "description": "Holztreppe",
+                  "vulnerability": 5.6
+            }
+      }
+}

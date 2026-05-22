@@ -1,0 +1,168 @@
+﻿{
+      "BA": {
+            "height": 2.15,
+            "CeHe": 0.2,
+            "window": {
+                  "HDistWaWi": 1.2,
+                  "VDistFlWi": 0.4,
+                  "HDistWiWi": 3.5,
+                  "WiLen": 0.8,
+                  "WiHe": 0.4,
+                  "HDistMinWaWi": 0.75
+            },
+            "door": {
+                  "DoHe": 2,
+                  "DoLen": 0.85,
+                  "HDistDoWa": 7.3
+            }
+      },
+      "GF": {
+            "height": 2.8,
+            "heightGr": 1.0,
+            "CeHe":0.3,
+            "window": {
+                  "HDistMinWaWi": 0.5,
+                  "HDistWaWi": 1.45,
+                  "HDistWiWi": 1.5,
+                  "VDistFlWi": 0.8,
+                  "HDistDoWi": 2.0,
+                  "WiLen": 1.2,
+                  "WiHe": 1.55
+            },
+            "door": {
+                  "DoHe": 2.55,
+                  "DoLen": 0.9,
+                  "HDistDoWa": 9.5
+            }
+      },
+      "UF": {
+            "extPolyHeight": true,
+            "height": 2.8,
+            "CeHe":0.3,
+            "window": {
+                  "HDistMinWaWi": 0.5,
+                  "HDistWaWi": 1.45,
+                  "HDistWiWi": 1.5,
+                  "VDistFlWi": 0.8,
+                  "WiLen": 1.2,
+                  "WiHe": 1.55
+            }
+      },
+      "RO": {
+            "window": {
+                  "HDistWaWi": NaN,
+                  "VDistFlWi": NaN,
+                  "HDistWiWi": NaN,
+                  "WiHe": NaN,
+                  "WiLen": NaN,
+                  "HDistMinWaWi": NaN
+            },
+            "shape": {
+                  "Typ": 1,
+                  "RiHe": 17.9,
+                  "HSiTi": NaN,
+                  "VSiTi": NaN,
+                  "HFrTi": NaN,
+                  "VFrTi": NaN
+            }
+      },
+      "UT": {
+            "HDistWaPo": 1.0,
+            "HDistWaPo2": 1.0,
+            "VDistFlPo": -0.5,
+            "SiX": 0.5,
+            "SiY": 0.5,
+            "SiZ": 0.5,
+            "DoUF": false,
+            "DoGF": true,
+            "DoBA": true,
+            "NrUt": 1
+      },
+      "GA": {
+            "GaLen": 3.75,
+            "GaWid": 2.1,
+            "GaHe": 0.95,
+            "HDistWaGa": 0.35,
+            "HDistGaGa": 12.25,
+            "HDistMinWaGa": 0.25,
+            "HDistWiGa": 1.35,
+            "WiLen": 0.9,
+            "WiHe": 2.25,
+            "HDistWaWi": 1,
+            "DistWiGa": 0.6,
+            "GaPa": "GaWiWiWiGa"
+      },
+      "IN": {
+            "HIn": 7,
+            "VIn": 2,
+            "MinInSi": 8
+      },
+      "FL": {
+            "IDistStWa": 0.2,
+            "StLen":4.6,
+            "StWid": 2
+      },
+      "BU": {
+                  "BA": true,
+                  "GFRo": false,
+                  "BuLen": 12.45,
+                  "BuWid": 20.65,
+                  "BuHe": 9.25,
+                  "RoSh": 1,
+                  "BaDo": true,
+                  "EnDi": [ 4,2 ],
+                  "SID": "MRG4"
+      },
+      "FD": {
+            "WallAttr": {
+                  "typ": "AW-Z",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 7.3
+            },
+            "CeilingAttr": {
+                  "typ": "D-H1",
+                  "description": "Hohldielendecke",
+                  "vulnerability": 8.2
+            },
+            "Window": {
+                  "typ": "F-H",
+                  "description": "Holzsprossenfenster, Wärmeschutzverglasung",
+                  "vulnerability": 4.2
+            },
+            "FacadeAttr": {
+                  "typ": "FA-P",
+                  "description": "Putzfassade, im Sockelbereich Natursteinplatten",
+                  "vulnerability": 5.9
+            },
+            "Groundsurface": {
+                  "typ": "FB-SE",
+                  "description": "schwimmender Estrich auf Schüttung",
+                  "vulnerability": 2.2
+            },
+            "FoundationAttr": {
+                  "typ": "G-S",
+                  "description": "Streifenfundamente, Stampfbeton",
+                  "vulnerability": NaN
+            },
+            "Interiorwallsurface": {
+                  "typ": "IW-Z",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 7.3
+            },
+            "Door": {
+                  "typ": "T-H",
+                  "description": "Holztür",
+                  "vulnerability": 3.2
+            },
+            "GalleryDoor": {
+                  "typ": "F-H",
+                  "description": "Holzsprossenfenster, Wärmeschutzverglasung",
+                  "vulnerability": 4.2
+            },
+            "Closuresurface": {
+                  "typ": "TR-BL",
+                  "description": "Blockstufen aus Sandstein",
+                  "vulnerability": 6.9
+            }
+      }
+}

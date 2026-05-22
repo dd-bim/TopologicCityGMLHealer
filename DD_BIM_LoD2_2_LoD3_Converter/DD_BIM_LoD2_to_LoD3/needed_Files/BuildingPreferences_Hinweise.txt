@@ -1,0 +1,28 @@
+Innenwand:
+0 > Innenwand
+1 > Außenwand
+2 > Stirnseite > keine Fenster (nur in Kombination mit Wohngebäudetyp sinnvoll > kann erstmal ignoriert werden bzw. als 1 interpretiert werden), unabhängig von WindowPreference
+
+
+WindowPreference:
+0 > keine Fenster
+1 > Fenster
+2 > Fenster ab bestimmter Höhe/Z_Fenster möglich (Z_Differenz > 0)
+
+
+Z_Fenster:
+= Höhe der benachbarten Wandfläche (kann größer als eigene Wandhöhe sein)
+> Höhe ab der Fenster möglich sind
+
+
+Z_Differenz:
+= Differenz aus eigener Wandhöhe und benachbarter Wandhöhe (negativ = benachbarte Wand ist höher) = verbleibende freie Wandhöhe
+> Z_Fenster (benachbarte Wandhöhe) - Z_Max (eigene Wandhöhe) = Z_Differenz
+
+
+DoorCount:
+= nächstgelegene (für eine Tür geeignete) Wand zu jedem Adresspunkt > gleiche Wand für mehrere Adresspunkte möglich
+0 > keine Tür
+1 > 1 Tür
+2+ > mehrere Türen
+-1 > Hintertür (= entfernteste Wand zur Wand, die dem Adresspunkt am nächsten liegt) > wahrscheinlich nur in Kombination mit Wohngebäudetyp sinnvoll > kann erstmal ignoriert werden bzw. als 0 interpretiert werden

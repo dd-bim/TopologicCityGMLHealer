@@ -1,0 +1,170 @@
+﻿{
+      "BA": {
+            "height": 2.1,
+            "CeHe": 0.26,
+            "window": {
+                  "HDistWaWi": 1.8,
+                  "VDistFlWi": 0.3,
+                  "HDistWiWi": 2.5,
+                  "WiLen": 0.8,
+                  "WiHe": 0.5,
+                  "HDistMinWaWi": 0.8
+            },
+            "door": {
+                  "DoHe": NaN,
+                  "DoLen": NaN,
+                  "HDistDoWa": NaN
+            }
+      },
+      "GF": {
+            "height": 2.48,
+            "heightGr": 1.45,
+            "CeHe":0.23,
+            "window": {
+                  "HDistMinWaWi": 1.0,
+                  "HDistWaWi": 1.85,
+                  "HDistWiWi": 2.0,
+                  "VDistFlWi": 0.85,
+                  "HDistDoWi": 1.7,
+                  "WiLen": 1.55,
+                  "WiHe": 1.25
+            },
+            "door": {
+                  "DoHe": 2.1,
+                  "DoLen": 1.1,
+                  "HDistDoWa": 9.3
+            }
+      },
+      "UF": {
+            "extPolyHeight": true,
+            "height": 2.48,
+            "CeHe":0.23,
+            "window": {
+                  "HDistMinWaWi": 1.0,
+                  "HDistWaWi": 1.85,
+                  "HDistWiWi": 2.0,
+                  "VDistFlWi": 0.85,
+                  "WiLen": 1.55,
+                  "WiHe": 1.25
+                  
+            }
+      },
+      "RO": {
+            "window": {
+                  "HDistWaWi": 5,
+                  "VDistFlWi": 1.5,
+                  "HDistWiWi": 3,
+                  "WiHe": 1.2,
+                  "WiLen": 0.8,
+                  "HDistMinWaWi": 3
+            },
+            "shape": {
+                  "Typ": 1,
+                  "RiHe": 10.8,
+                  "HSiTi": NaN,
+                  "VSiTi": NaN,
+                  "HFrTi": NaN,
+                  "VFrTi": NaN
+            }
+      },
+      "UT": {
+            "HDistWaPo": 1.0,
+            "HDistWaPo2": 1.0,
+            "VDistFlPo": -0.5,
+            "SiX": 0.5,
+            "SiY": 0.5,
+            "SiZ": 0.5,
+            "DoUF": false,
+            "DoGF": true,
+            "DoBA": true,
+            "NrUt": 1
+      },
+      "GA": {
+            "GaLen": NaN,
+            "GaWid": NaN,
+            "GaHe": NaN,
+            "HDistWaGa": NaN,
+            "HDistGaGa": NaN,
+            "HDistMinWaGa": NaN,
+            "HDistWiGa": NaN,
+            "WiLen": NaN,
+            "WiHe": NaN,
+            "HDistWaWi": NaN,
+            "DistWiGa": NaN,
+            "GaPa": null
+      },
+      "IN": {
+            "HIn": 5,
+            "VIn": 2,
+            "MinInSi": 7
+      },
+      "FL": {
+            "IDistStWa": 0.3,
+            "StLen": 2.05,
+            "StWid": 2.3
+      },
+      "BU": {
+                  "BA": true,
+                  "GFRo": false,
+                  "BuLen": 9.4,
+                  "BuWid": 16.3,
+                  "BuHe": 5.55,
+                  "RoSh": 1,
+                  "BaDo": false,
+                  "EnDi": [ 2  ],
+                  "SID": "ME5"
+            },
+      
+      "FD": {
+            "WallAttr": {
+                  "typ": null,
+                  "description": "Gasbetonplansteine",
+                  "vulnerability": NaN
+            },
+            "CeilingAttr": {
+                  "typ": "D-STB1",
+                  "description": "Stahlbetonmassivplatte",
+                  "vulnerability": 8.6
+            },
+            "Window": {
+                  "typ": "F-K1",
+                  "description": "Kunststofffenster",
+                  "vulnerability": 4.4
+            },
+            "FacadeAttr": {
+                  "typ": "FA-WDVS",
+                  "description": "Wärmedämmverbundsystem mit mineralischem Putz",
+                  "vulnerability": 2.2
+            },
+            "Groundsurface": {
+                  "typ": "FB-SE3",
+                  "description": "Schwimmender Estrich auf Trittschalldämmung",
+                  "vulnerability": 2.2
+            },
+            "FoundationAttr": {
+                  "typ": "G-S2",
+                  "description": "Streifenfundamente, Beton",
+                  "vulnerability": NaN
+            },
+            "Interiorwallsurface": {
+                  "typ": "IW-Z",
+                  "description": "Ziegelmauerwerk",
+                  "vulnerability": 8.1
+            },
+            "Door": {
+                  "typ": "T-H1",
+                  "description": "Holztür",
+                  "vulnerability": 3.2
+            },
+            "GalleryDoor": {
+                  "typ": "F-K1",
+                  "description": "Kunststofffenster",
+                  "vulnerability": 4.4
+            },
+            "Closuresurface": {
+                  "typ": "TR-B1",
+                  "description": "Betonstufen",
+                  "vulnerability": 9.2
+            }
+      }
+}
