@@ -1,12 +1,15 @@
 # LoD2 → LoD3 Konvertierungspipeline
 
-Konvertiert CityGML-Gebäude von **LoD2 auf LoD3** – mit Keller, Geschossen, Türen, Fenstern,
-Balkonen und Dachfenstern. Eingabe: CityGML-Datei (oder ganzer Ordner mit Kacheln) + optionales
-DGM. Ausgabe: CityGML 1.0 (LoD3).
+Konvertiert CityGML-Gebäude von **LoD2 auf LoD3** – mit Keller, Geschossen, Türen, Fenstern, Balkonen und Dachfenstern. Eingabe: CityGML-Datei (oder ganzer Ordner mit Kacheln) + optionales DGM. Ausgabe: CityGML 1.0 (LoD3).
 
 Reines CMD-Tool — keine IDE nötig, läuft in jedem Terminal mit Java 21+ (`java -jar ...`).
 
-> **Vollständige technische Dokumentation, Verifikationsläufe, Bugfix-Historie:** [Doku.md](Doku.md)
+**Vollständige Dokumentation** — als [interaktive HTML-Seite](docs/index.html) oder einzeln:
+
+- [Doku_Benutzende.md](Doku_Benutzende.md) — was die Pipeline erzeugt, Datenqualität einordnen
+- [Doku_Administrierende.md](Doku_Administrierende.md) — Installation, Konfiguration, Ausführung, Verifikation
+- [Doku_Programmierende.md](Doku_Programmierende.md) — Architektur, Algorithmen, offene Punkte
+- [Doku_Legacy.md](Doku_Legacy.md) — Archiv, vollständige Fassung vor der Aufteilung (Bugfix-Historie)
 
 ---
 
@@ -30,6 +33,16 @@ Ergebnis: `target/lod2-zu-lod3-pipeline.jar` (Main-Class `Lod2ToLod3Pipeline`).
 
 ---
 
+## Desktop-GUI (.exe)
+
+**→ [dist/LoD2zuLoD3.zip](dist/LoD2zuLoD3.zip) herunterladen**, entpacken, `LoD2zuLoD3.exe` doppelklicken — kein Java, kein CMD nötig, Laufzeit ist eingebaut.
+
+Auswahl in der Oberfläche: CityGML-Datei/-Ordner, Baukörpermodule-Ordner (JSON), optional ein DGM, Ausgabeordner. Unter „Erweiterte Optionen" lassen sich einzelne Schritte (Keller/Geschosse/Türen/Fenster/Balkone/Dachfenster) abwählen — Standard ist „alle an", identisch zum normalen Lauf.
+
+Läuft intern exakt dieselbe Pipeline wie der CLI-Aufruf unten — kein separates Werkzeug, keine abweichenden Ergebnisse. Details zur Bedienung: [Doku_Administrierende.md](Doku_Administrierende.md).
+
+---
+
 ## Schnellstart
 
 ### Einzelne Datei
@@ -48,10 +61,7 @@ Wird automatisch erkannt, wenn das erste Argument ein Ordner statt einer Datei i
 java -jar target/lod2-zu-lod3-pipeline.jar  inputFolder/  Baukörpermodule_json/  output/  [dgm-pfad]
 ```
 
-Verarbeitet alle `.gml`-Dateien im Ordner nacheinander, legt unter `output/` einen neuen
-Unterordner an (`LoD2_...` → `LoD3_...` umbenannt) und schreibt dort jede Kachel einzeln hinein.
-Bricht eine einzelne Kachel ab, läuft der Rest weiter; am Ende steht eine Liste fehlgeschlagener
-Dateien plus eine aufsummierte Gesamtstatistik über alle erfolgreichen Kacheln.
+Verarbeitet alle `.gml`-Dateien im Ordner nacheinander, legt unter `output/` einen neuen Unterordner an (`LoD2_...` → `LoD3_...` umbenannt) und schreibt dort jede Kachel einzeln hinein. Bricht eine einzelne Kachel ab, läuft der Rest weiter; am Ende steht eine Liste fehlgeschlagener Dateien plus eine aufsummierte Gesamtstatistik über alle erfolgreichen Kacheln.
 
 ### Mit Maven direkt aus dem Quellcode
 
@@ -97,35 +107,15 @@ CityGML LoD2
 CityGML LoD3
 ```
 
-**Single-Pass-Architektur:** jede Eingabedatei wird einmal gelesen, alle Schritte laufen pro
-Gebäude im Speicher, das Ergebnis wird einmal geschrieben — keine Zwischendateien.
+**Single-Pass-Architektur:** jede Eingabedatei wird einmal gelesen, alle Schritte laufen pro Gebäude im Speicher, das Ergebnis wird einmal geschrieben — keine Zwischendateien.
 
-**Schritte 6+7 sind streng formneutral:** kein bestehender Vertex wird bewegt, nur fehlende
-Punkte auf bestehende Kanten eingefügt bzw. selbstberührende Ringe sauber aufgetrennt. Das
-Healing der Quellgeometrie (mm-Nähte, Planarität) bleibt beim nachgelagerten Healer.
+**Schritte 6+7 sind streng formneutral:** kein bestehender Vertex wird bewegt, nur fehlende Punkte auf bestehende Kanten eingefügt bzw. selbstberührende Ringe sauber aufgetrennt. Das Healing der Quellgeometrie (mm-Nähte, Planarität) bleibt beim nachgelagerten Healer.
 
 ---
 
 ## Baukörpermodule (JSON)
 
-Für jedes Gebäude wird eine JSON-Datei (`{gml:id}.json`) oder ein Fallback (`_default.json`)
-aus dem `jsonDir`-Verzeichnis geladen:
-
-```json
-{
-  "GF": { "roomHeight": 2.8, "windowRatio": 0.25, "doorCount": 1 },
-  "OG": { "roomHeight": 2.6, "windowRatio": 0.30 },
-  "DG": { "roomHeight": 2.4, "windowRatio": 0.15 },
-  "BA": { "height":    2.5, "windowRatio": 0.0  }
-}
-```
-
-| Schlüssel | Bedeutung |
-|---|---|
-| `GF` | Erdgeschoss |
-| `OG` | Obergeschoss(e) – wird bei mehreren Vollgeschossen wiederholt |
-| `DG` | Dachgeschoss (wenn unter Traufe Restfläche vorhanden) |
-| `BA` | Keller (Basement) |
+Jedes Gebäude wird über sein `sst`-Attribut einem Modul zugeordnet (`{sst}.json` im `jsonDir`-Verzeichnis, ohne Treffer: `_default.json`). Ein Modul deckt bis zu 10 Kategorien ab (Keller `BA`, Erd-/Obergeschoss `GF`/`UF`, Dach `RO`, Versorgungsschächte `UT`, Balkon `GA`, Innenraum `IN`, Treppenhaus `FL`, Gebäudemaße `BU`, Fassadenmaterialien `FD`) — vollständige Feldreferenz: [Doku_Administrierende.md](Doku_Administrierende.md).
 
 ---
 
@@ -144,10 +134,7 @@ Format wird automatisch erkannt (`DgmLoader`-Factory).
 
 ## Status
 
-Alle 8 Pipeline-Schritte (1–7 inkl. 4d/5a–5d) sind fertig und produktiv im Einsatz. Letzter
-kompletter Stadt-Lauf (Dresden, 98 Kacheln, 141.670 Gebäude): val3dity 98,36 % valide Features,
-CityDoctor2 92,24 % fehlerfreie Gebäude. Verifikationshistorie, Einzelfixe und genaue Zahlen:
-[Doku.md](Doku.md).
+Alle 8 Pipeline-Schritte (1–7 inkl. 4d/5a–5d) sind fertig und produktiv im Einsatz. Letzter kompletter Stadt-Lauf (Dresden, 98 Kacheln, 141.670 Gebäude): val3dity 98,36 % valide Features, CityDoctor2 92,24 % fehlerfreie Gebäude. Verifikationshistorie, Einzelfixe und genaue Zahlen: [Doku.md](Doku.md).
 
 ---
 

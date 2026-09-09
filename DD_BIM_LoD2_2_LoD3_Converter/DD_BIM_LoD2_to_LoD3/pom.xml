@@ -45,6 +45,13 @@
             <version>5.11.0</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Look-and-Feel fuer die GUI (Lod2Lod3Gui) -->
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>3.7.2</version>
+        </dependency>
     </dependencies>
 
     <build>

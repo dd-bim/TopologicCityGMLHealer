@@ -1,0 +1,890 @@
+<title>LoD2→LoD3 Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#F4F5EF; --surface:#FCFCF9; --surface-2:#ECEEE3;
+    --ink:#1C231F; --ink-soft:#57625B; --ink-faint:#8A9389;
+    --line:#DCE0D3; --line-strong:#C4CAB8;
+    --accent:#BE5326; --accent-ink:#FFF6F0;
+    --data:#3A6B64; --data-ink:#F0F7F5;
+    --open:#8A6A22; --open-bg:#F4EBD6;
+    --ok-bg:#E4EFEA;
+    --shadow:0 1px 2px rgba(28,35,31,.05), 0 6px 20px rgba(28,35,31,.06);
+    --font-d:'Archivo',system-ui,'Segoe UI',sans-serif;
+    --font-b:'Public Sans',system-ui,'Segoe UI',sans-serif;
+    --font-m:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#12160F; --surface:#191F17; --surface-2:#212820;
+      --ink:#E9ECE2; --ink-soft:#A3AC9C; --ink-faint:#748076;
+      --line:#2B3327; --line-strong:#3A4335;
+      --accent:#E58A5C; --accent-ink:#241005;
+      --data:#7FBBAF; --data-ink:#0B1A17;
+      --open:#D8AE5C; --open-bg:#2C2716;
+      --ok-bg:#182620;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#12160F; --surface:#191F17; --surface-2:#212820;
+    --ink:#E9ECE2; --ink-soft:#A3AC9C; --ink-faint:#748076;
+    --line:#2B3327; --line-strong:#3A4335;
+    --accent:#E58A5C; --accent-ink:#241005;
+    --data:#7FBBAF; --data-ink:#0B1A17;
+    --open:#D8AE5C; --open-bg:#2C2716;
+    --ok-bg:#182620;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--font-b); font-size:16px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,h4{font-family:var(--font-d); text-wrap:balance; margin:0; color:var(--ink); font-weight:700;}
+  p{margin:0 0 .9em;}
+  a{color:var(--accent);}
+  a:hover{text-decoration-thickness:2px;}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  ::selection{background:var(--accent); color:var(--accent-ink);}
+  .mono{font-family:var(--font-m);}
+  .tnum{font-variant-numeric:tabular-nums;}
+  .eyebrow{
+    font-family:var(--font-m); font-size:.72rem; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--ink-faint); font-weight:500;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:0 clamp(16px,3vw,40px);}
+  .col{max-width:66ch;}
+
+  /* ===== Title block ===== */
+  header.tb{border-bottom:1px solid var(--line-strong); background:var(--surface);}
+  .tb-top{padding:28px 0 20px;}
+  .tb-kicker{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
+  .tb-kicker .sq{width:11px; height:11px; border:1.6px solid var(--accent); flex:none;}
+  h1.tb-title{font-size:clamp(1.7rem,3.4vw,2.5rem); letter-spacing:-.01em;}
+  .tb-title small{display:block; font-family:var(--font-b); font-weight:500; font-size:1rem; color:var(--ink-soft); margin-top:6px; max-width:60ch;}
+  .tb-grid{
+    display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--line-strong); border-top:none;
+  }
+  .tb-cell{padding:11px 16px; border-left:1px solid var(--line-strong);}
+  .tb-cell:first-child{border-left:none;}
+  .tb-cell .lbl{font-family:var(--font-m); font-size:.65rem; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-faint); display:block; margin-bottom:3px;}
+  .tb-cell .val{font-family:var(--font-m); font-size:.87rem; color:var(--ink); font-weight:500;}
+  .tb-cell .val b{color:var(--data);}
+  @media(max-width:760px){.tb-grid{grid-template-columns:1fr 1fr;} .tb-cell:nth-child(3){border-left:none;}}
+  @media(max-width:460px){.tb-grid{grid-template-columns:1fr;} .tb-cell{border-left:none; border-top:1px solid var(--line-strong);} .tb-cell:first-child{border-top:none;}}
+
+  /* ===== Tabs ===== */
+  nav.tabs{position:sticky; top:0; z-index:30; background:var(--paper); border-bottom:1px solid var(--line-strong); backdrop-filter:blur(6px);}
+  .tabs-row{display:flex; gap:2px;}
+  .tab{
+    appearance:none; background:none; border:none; cursor:pointer; font-family:var(--font-d);
+    padding:14px 20px 12px; font-size:.95rem; font-weight:700; color:var(--ink-soft);
+    border-bottom:3px solid transparent; display:flex; flex-direction:column; gap:2px; text-align:left;
+  }
+  .tab .sub{font-family:var(--font-b); font-weight:500; font-size:.72rem; color:var(--ink-faint); letter-spacing:.01em;}
+  .tab[aria-selected="true"]{color:var(--ink); border-bottom-color:var(--accent);}
+  .tab[aria-selected="true"] .sub{color:var(--accent);}
+  .tab:hover{color:var(--ink);}
+  @media(max-width:600px){.tab{padding:11px 12px 10px; font-size:.85rem;} .tab .sub{display:none;}}
+
+  /* ===== Panels ===== */
+  .panel{padding:40px 0 70px;}
+  .panel[hidden]{display:none;}
+  .lead{font-size:1.08rem; color:var(--ink-soft); margin-bottom:34px;}
+  section{margin-bottom:46px;}
+  section > h2{font-size:1.5rem; margin-bottom:4px;}
+  section > .sec-note{color:var(--ink-faint); font-size:.88rem; margin-bottom:18px; max-width:60ch;}
+  h3{font-size:1.08rem; margin:22px 0 8px;}
+  ul,ol{margin:0 0 1em; padding-left:1.3em;}
+  li{margin-bottom:.45em;}
+  hr.rule{border:none; border-top:1px solid var(--line); margin:44px 0;}
+
+  /* ===== Feature card grid ===== */
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line-strong); border:1px solid var(--line-strong);}
+  .grid.g2{grid-template-columns:repeat(2,1fr);}
+  @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:480px){.grid{grid-template-columns:1fr;}}
+  .fcard{background:var(--surface); padding:18px 18px 16px;}
+  .fcard .ic{width:30px; height:30px; margin-bottom:10px; color:var(--accent);}
+  .fcard .ic svg{width:100%; height:100%;}
+  .fcard h4{font-size:.98rem; margin-bottom:5px;}
+  .fcard p{font-size:.88rem; color:var(--ink-soft); margin:0; max-width:none;}
+
+  /* ===== Sketch / diagram sheets ===== */
+  .sheet{position:relative; border:1px solid var(--line-strong); background:var(--surface); padding:26px 26px 20px; margin:22px 0; box-shadow:var(--shadow);}
+  .sheet::before,.sheet::after,.sheet .c3,.sheet .c4{content:""; position:absolute; width:14px; height:14px; border-color:var(--accent); opacity:.55;}
+  .sheet::before{top:-1px; left:-1px; border-top:2px solid; border-left:2px solid;}
+  .sheet::after{top:-1px; right:-1px; border-top:2px solid; border-right:2px solid;}
+  .sheet .c3{bottom:-1px; left:-1px; border-bottom:2px solid; border-left:2px solid;}
+  .sheet .c4{bottom:-1px; right:-1px; border-bottom:2px solid; border-right:2px solid;}
+  .sheet-cap{font-family:var(--font-m); font-size:.68rem; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:14px; display:flex; justify-content:space-between; gap:10px;}
+  .sheet svg{width:100%; height:auto; display:block;}
+  .sheet svg text{font-family:var(--font-m); fill:var(--ink-soft);}
+  .sheet svg text.lbl-strong{fill:var(--ink); font-weight:600;}
+
+  /* ===== Gauges ===== */
+  .gauges{display:flex; gap:28px; flex-wrap:wrap; margin:20px 0;}
+  .gauge{flex:1 1 260px; min-width:230px;}
+  .gauge .gtop{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:7px;}
+  .gauge .gname{font-size:.86rem; font-weight:600;}
+  .gauge .gpct{font-family:var(--font-m); font-size:1.5rem; font-weight:600; color:var(--data);}
+  .gauge .gbar{height:9px; background:var(--surface-2); border:1px solid var(--line-strong); position:relative;}
+  .gauge .gfill{height:100%; background:var(--data);}
+  .gauge .gsub{font-size:.78rem; color:var(--ink-faint); margin-top:5px;}
+
+  /* ===== Outcome cards ===== */
+  .outcomes{display:flex; gap:1px; background:var(--line-strong); border:1px solid var(--line-strong); margin:18px 0;}
+  .outcome{flex:1; background:var(--surface); padding:16px 18px;}
+  .outcome .otop{display:flex; align-items:center; gap:8px; margin-bottom:6px;}
+  .outcome .odot{width:10px; height:10px; border-radius:50%; flex:none;}
+  .outcome.yes .odot{background:var(--data);}
+  .outcome.no .odot{background:var(--open);}
+  .outcome h4{font-size:.92rem;}
+  .outcome p{font-size:.86rem; color:var(--ink-soft); margin:0;}
+  @media(max-width:640px){.outcomes{flex-direction:column;}}
+
+  /* ===== Callouts ===== */
+  .callout{border:1px solid var(--line-strong); border-left:3px solid var(--accent); background:var(--surface); padding:14px 18px; margin:18px 0; font-size:.92rem;}
+  .callout p:last-child{margin-bottom:0;}
+  .callout .ctitle{font-family:var(--font-d); font-weight:700; font-size:.85rem; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:4px;}
+
+  /* ===== Chips ===== */
+  .chip{display:inline-block; font-family:var(--font-m); font-size:.68rem; letter-spacing:.04em; text-transform:uppercase; padding:2px 7px; border:1px solid currentColor; font-weight:500;}
+  .chip.open{color:var(--open); background:var(--open-bg); border-color:var(--open);}
+  .chip.ok{color:var(--data); background:var(--ok-bg); border-color:var(--data);}
+
+  /* ===== Tables ===== */
+  .tbl-wrap{overflow-x:auto; border:1px solid var(--line-strong); margin:16px 0;}
+  table{border-collapse:collapse; width:100%; font-size:.87rem; min-width:420px;}
+  th,td{text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
+  thead th{font-family:var(--font-m); font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); background:var(--surface-2); border-bottom:1px solid var(--line-strong); font-weight:500;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--surface-2);}
+  td.k{font-family:var(--font-m); font-size:.83rem; color:var(--ink); white-space:nowrap;}
+
+  /* ===== Code blocks ===== */
+  .cmd{position:relative; background:var(--surface-2); border:1px solid var(--line-strong); margin:14px 0;}
+  .cmd .cmdlbl{font-family:var(--font-m); font-size:.66rem; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); padding:7px 12px 0;}
+  .cmd pre{margin:0; padding:6px 44px 12px 12px; overflow-x:auto; font-family:var(--font-m); font-size:.82rem; line-height:1.6; color:var(--ink); white-space:pre;}
+  .cmd .copy{
+    position:absolute; top:6px; right:6px; background:var(--surface); border:1px solid var(--line-strong);
+    color:var(--ink-soft); font-family:var(--font-m); font-size:.66rem; padding:4px 7px; cursor:pointer; letter-spacing:.03em;
+  }
+  .cmd .copy:hover{color:var(--ink); border-color:var(--accent);}
+  .cmd .copy.done{color:var(--data); border-color:var(--data);}
+
+  /* ===== File tree ===== */
+  .tree{font-family:var(--font-m); font-size:.81rem; line-height:1.75; white-space:pre; overflow-x:auto; background:var(--surface); border:1px solid var(--line-strong); padding:16px 18px; color:var(--ink-soft);}
+  .tree .f{color:var(--ink);}
+  .tree .cm{color:var(--ink-faint);}
+
+  /* ===== Accordion (details) ===== */
+  .acc{border:1px solid var(--line-strong); border-top:none; margin:16px 0;}
+  .acc details{border-top:1px solid var(--line-strong);}
+  .acc summary{
+    cursor:pointer; list-style:none; padding:12px 16px; display:flex; align-items:center; gap:12px;
+    font-family:var(--font-d); font-weight:700; font-size:.92rem; background:var(--surface);
+  }
+  .acc summary::-webkit-details-marker{display:none;}
+  .acc summary .num{font-family:var(--font-m); color:var(--accent); font-weight:600; font-size:.85rem; flex:none; width:1.6em;}
+  .acc summary .tt{flex:1;}
+  .acc summary .arrow{color:var(--ink-faint); transition:transform .15s ease; flex:none;}
+  .acc details[open] summary .arrow{transform:rotate(90deg);}
+  .acc .body{padding:4px 16px 18px 16px; font-size:.92rem;}
+  .acc .body p:last-child{margin-bottom:0;}
+  @media (prefers-reduced-motion: reduce){.acc summary .arrow{transition:none;}}
+
+  /* ===== Pipeline flow (Programmierende) ===== */
+  .flow{position:relative; margin:20px 0 20px 0; padding-left:34px;}
+  .flow::before{content:""; position:absolute; left:9px; top:8px; bottom:8px; width:1px; background:var(--line-strong);}
+  .fstep{position:relative; padding-bottom:22px;}
+  .fstep:last-child{padding-bottom:0;}
+  .fstep .dot{position:absolute; left:-34px; top:2px; width:19px; height:19px; border:1.6px solid var(--accent); background:var(--surface); color:var(--accent); font-family:var(--font-m); font-size:.66rem; font-weight:600; display:flex; align-items:center; justify-content:center;}
+  .fstep.sub .dot{border-color:var(--data); color:var(--data); left:-34px;}
+  .fstep.sub{margin-left:26px;}
+  .fstep.sub::before{content:""; position:absolute; left:-40px; top:10px; width:16px; height:1px; background:var(--line-strong);}
+  .fstep h4{font-size:.95rem; margin-bottom:2px;}
+  .fstep p{font-size:.86rem; color:var(--ink-soft); margin:0;}
+
+  /* ===== Refs list ===== */
+  .refs{font-size:.85rem; color:var(--ink-soft);}
+  .refs li{margin-bottom:.3em;}
+
+  footer{border-top:1px solid var(--line-strong); padding:26px 0 40px; color:var(--ink-faint); font-size:.82rem;}
+  footer a{color:var(--ink-soft);}
+
+  @media (prefers-reduced-motion: reduce){*{scroll-behavior:auto !important;}}
+</style>
+
+<header class="tb">
+  <div class="wrap tb-top">
+    <div class="tb-kicker"><span class="sq"></span><span class="eyebrow">CityGML · LoD2 → LoD3</span></div>
+    <h1 class="tb-title">Konvertierungspipeline
+      <small>Modulare Java-Pipeline, die aus einfachen LoD2-Gebäudehüllen detaillierte LoD3-Modelle erzeugt — Keller, Geschosse, Türen, Fenster, Balkone, Dachfenster.</small>
+    </h1>
+  </div>
+  <div class="wrap" style="padding-bottom:0;">
+    <div class="tb-grid">
+      <div class="tb-cell"><span class="lbl">System</span><span class="val">CityGML 1.0 · citygml4j 3.2.7</span></div>
+      <div class="tb-cell"><span class="lbl">Letzter Vollauf</span><span class="val"><b class="tnum">98</b> Kacheln · <b class="tnum">141.670</b> Gebäude</span></div>
+      <div class="tb-cell"><span class="lbl">Baseline</span><span class="val">val3dity <b class="tnum">98,36 %</b> · CityDoctor2 <b class="tnum">92,24 %</b></span></div>
+      <div class="tb-cell"><span class="lbl">Stand</span><span class="val tnum">2026-09-02 · Dresden</span></div>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Zielgruppe">
+  <div class="wrap tabs-row" role="tablist">
+    <button class="tab" role="tab" id="t-benutzer" aria-controls="p-benutzer" data-tab="benutzer">Benutzende<span class="sub">Was entsteht, wie gut ist es</span></button>
+    <button class="tab" role="tab" id="t-admin" aria-controls="p-admin" data-tab="admin">Administrierende<span class="sub">Installieren, konfigurieren, prüfen</span></button>
+    <button class="tab" role="tab" id="t-dev" aria-controls="p-dev" data-tab="dev">Programmierende<span class="sub">Architektur, Algorithmen, offene Punkte</span></button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ============ BENUTZENDE ============ -->
+<section class="panel" id="p-benutzer" role="tabpanel" aria-labelledby="t-benutzer">
+  <p class="lead">Was diese Pipeline aus einem Gebäudemodell macht und wie die Ausgabe fachlich einzuordnen ist. Für Aufruf und Konfiguration siehe den Reiter <em>Administrierende</em>.</p>
+
+  <section>
+    <h2>Was wird erzeugt</h2>
+    <p class="sec-note">Aus einer einfachen Gebäudehülle (Wände, Dach, Grundfläche) wird pro Gebäude ein detailliertes Modell — gesteuert über das Baukörpermodul, das dem Gebäude anhand seines <span class="mono">sst</span>-Attributs zugeordnet ist.</p>
+    <div class="grid">
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="10" width="18" height="10"/><path d="M3 10 L21 10 M6 13 L6 17 M10 13 L10 17 M14 13 L14 17 M18 13 L18 17"/></svg></div>
+        <h4>Keller</h4><p>Unterhalb der Geländeoberfläche, inkl. Kellerwänden und -boden — wenn das Modul einen Keller vorsieht.</p></div>
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 5 L21 5 M3 11 L21 11 M3 17 L21 17 M3 5 L3 20 M21 5 L21 20 M3 20 L21 20"/></svg></div>
+        <h4>Geschosse</h4><p>Die Gebäudehülle wird in Erdgeschoss, Obergeschosse und ggf. Dachgeschoss unterteilt, mit eigenen Böden und Decken je Geschoss.</p></div>
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3 L6 21 M6 21 L16 21 M6 3 L14 4.5 L14 21 M14 12 A5 5 0 0 0 14 12.01"/></svg></div>
+        <h4>Türen</h4><p>Mindestens die Eingangstür im Erdgeschoss. Fehlt in den Quelldaten jede Türinformation, setzt eine Ersatztür-Regel eine Tür an der breitesten EG-Wand.</p></div>
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16"/><path d="M12 4 L12 20 M4 12 L20 12"/></svg></div>
+        <h4>Fenster</h4><p>Auf allen Geschossen inkl. Keller, nach den im Modul hinterlegten Abständen und Maßen. Hinter einem Anbau verdeckte Wandabschnitte bleiben bewusst fensterlos.</p></div>
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4 L4 20 M4 15 L15 15 M15 15 L15 9 M15 9 L20 9 M15 9 L15 4"/></svg></div>
+        <h4>Balkone</h4><p>Wenn das Modul ein Balkon-Muster vorsieht, inkl. Balkontür — als eigenständiges Anbau-Element, nicht Teil der Wandhülle.</p></div>
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 14 L12 4 L21 14 Z"/><rect x="8.2" y="9.3" width="4.2" height="3.6"/></svg></div>
+        <h4>Dachfenster</h4><p>Auf geneigten Dachflächen, wenn das Modul welche vorsieht — eigene Platzierungslogik entlang der Dachschräge.</p></div>
+    </div>
+    <p style="margin-top:14px; font-size:.9rem; color:var(--ink-faint);">Ein Gebäude kann je nach zugeordnetem Modul auch nur einen Teil dieser Elemente bekommen (z. B. keinen Keller, wenn keiner vorgesehen ist) — das ist beabsichtigtes Verhalten, kein Fehler.</p>
+  </section>
+
+  <section>
+    <h2>Ein Gebäude im Schnitt</h2>
+    <p class="sec-note">Schematische Elevation — welches Element in welchem Geschoss entsteht.</p>
+    <div class="sheet">
+      <span class="c3"></span><span class="c4"></span>
+      <div class="sheet-cap"><span>Ansicht · Schnitt A–A</span><span>nicht maßstäblich</span></div>
+      <svg viewBox="0 0 640 400" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="hatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="7" stroke="var(--ink-faint)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <!-- roof -->
+        <polygon points="160,154 260,88 380,88 480,154" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.4"/>
+        <rect x="205" y="116" width="30" height="24" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.2"/>
+        <!-- OG -->
+        <rect x="180" y="154" width="280" height="78" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4"/>
+        <rect x="205" y="174" width="35" height="40" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.1"/>
+        <line x1="222.5" y1="174" x2="222.5" y2="214" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="205" y1="194" x2="240" y2="194" stroke="var(--ink)" stroke-width="1"/>
+        <rect x="400" y="174" width="35" height="40" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.1"/>
+        <line x1="417.5" y1="174" x2="417.5" y2="214" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="400" y1="194" x2="435" y2="194" stroke="var(--ink)" stroke-width="1"/>
+        <!-- balcony -->
+        <rect x="395" y="222" width="66" height="7" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.2"/>
+        <line x1="401" y1="196" x2="401" y2="222" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="418" y1="196" x2="418" y2="222" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="435" y1="196" x2="435" y2="222" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="452" y1="196" x2="452" y2="222" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="395" y1="196" x2="461" y2="196" stroke="var(--ink)" stroke-width="1.2"/>
+        <!-- EG -->
+        <rect x="180" y="232" width="280" height="78" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4"/>
+        <rect x="205" y="252" width="35" height="40" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.1"/>
+        <line x1="222.5" y1="252" x2="222.5" y2="292" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="205" y1="272" x2="240" y2="272" stroke="var(--ink)" stroke-width="1"/>
+        <rect x="400" y="252" width="35" height="40" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.1"/>
+        <line x1="417.5" y1="252" x2="417.5" y2="292" stroke="var(--ink)" stroke-width="1"/>
+        <line x1="400" y1="272" x2="435" y2="272" stroke="var(--ink)" stroke-width="1"/>
+        <rect x="303" y="258" width="30" height="52" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.2"/>
+        <path d="M303 258 A30 52 0 0 1 333 260" fill="none" stroke="var(--ink-faint)" stroke-width="1"/>
+        <!-- Keller -->
+        <rect x="180" y="310" width="280" height="62" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.4"/>
+        <rect x="205" y="318" width="28" height="22" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.1"/>
+        <rect x="407" y="318" width="28" height="22" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.1"/>
+        <!-- ground -->
+        <line x1="30" y1="310" x2="610" y2="310" stroke="var(--ink)" stroke-width="1.6"/>
+        <rect x="30" y="310" width="580" height="13" fill="url(#hatch)" opacity=".6"/>
+        <!-- dimension leaders -->
+        <g stroke="var(--line-strong)" stroke-width="1">
+          <line x1="460" y1="122" x2="520" y2="122"/>
+          <line x1="460" y1="193" x2="520" y2="193"/>
+          <line x1="460" y1="271" x2="520" y2="271"/>
+          <line x1="460" y1="341" x2="520" y2="341"/>
+        </g>
+        <text x="524" y="118" font-size="11" class="lbl-strong">DACH</text>
+        <text x="524" y="131" font-size="9.5">Dachfenster</text>
+        <text x="524" y="189" font-size="11" class="lbl-strong">OG</text>
+        <text x="524" y="202" font-size="9.5">Fenster, Balkon</text>
+        <text x="524" y="267" font-size="11" class="lbl-strong">EG</text>
+        <text x="524" y="280" font-size="9.5">Eingangstür, Fenster</text>
+        <text x="524" y="337" font-size="11" class="lbl-strong">KELLER</text>
+        <text x="524" y="350" font-size="9.5">Kellerfenster</text>
+        <text x="30" y="330" font-size="9.5">Gelände / TIC (H_DGM)</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Datenqualität einordnen</h2>
+    <p class="sec-note">Jeder Lauf wird gegen zwei unabhängige Prüfwerkzeuge verifiziert.</p>
+    <div class="gauges">
+      <div class="gauge">
+        <div class="gtop"><span class="gname">val3dity — geometrische Solid-Validität</span><span class="gpct tnum">98,36 %</span></div>
+        <div class="gbar"><div class="gfill" style="width:98.36%"></div></div>
+        <div class="gsub">Gebäude-Flächen valide (ISO-19107) · 141.670 Gebäude, ganz Dresden</div>
+      </div>
+      <div class="gauge">
+        <div class="gtop"><span class="gname">CityDoctor2 — semantische Regeln</span><span class="gpct tnum">92,24 %</span></div>
+        <div class="gbar"><div class="gfill" style="width:92.24%"></div></div>
+        <div class="gsub">Gebäude komplett fehlerfrei · gleiche Grundgesamtheit</div>
+      </div>
+    </div>
+    <p><strong>val3dity</strong> prüft, ob jedes Gebäude ein geometrisch sauberes, wasserdichtes 3D-Volumen ist — z. B. keine offenen Lücken in der Hülle, keine Selbstüberschneidungen. <strong>CityDoctor2</strong> prüft zusätzlich semantische Regeln, z. B. ob ein Kellerboden wirklich nach unten zeigt oder eine Fläche wirklich planar ist.</p>
+    <p>Das heißt nicht, dass die restlichen Gebäude unbrauchbar sind — die allermeisten Meldungen sind kleine, lokal begrenzte Abweichungen (z. B. eine leicht nicht-plane Fläche), keine grob falschen Gebäude. Ein Teil der gemeldeten Fehler stammt außerdem nachweislich aus den LoD2-Ausgangsdaten selbst (Digitalisierungsungenauigkeit) oder ist ein bekanntes Artefakt der Prüfwerkzeuge, kein echter Mangel der erzeugten Geometrie (Details dazu im Reiter <em>Programmierende</em>, Abschnitt „Bekannte offene Punkte“).</p>
+    <p>Die letzten mm-genauen Nähte zwischen einzelnen Flächen werden bewusst <strong>nicht</strong> von dieser Pipeline geschlossen, sondern bleiben Aufgabe des nachgelagerten Healers.</p>
+  </section>
+
+  <section>
+    <h2>Bekannte fachliche Einschränkungen</h2>
+    <ul>
+      <li><strong>Manche Gebäude bekommen keine Tür.</strong> Wenn die Quelldaten für ein Gebäude an keiner Wand eine Tür-Information liefern (eine bekannte Lücke in der vorgelagerten Adresspunkt-Zuordnung), setzt die Pipeline automatisch eine Ersatztür an der breitesten Erdgeschosswand, sofern das Gebäude mindestens ein Fenster hat. Bleibt auch das erfolglos (sehr seltener Randfall), bleibt das Gebäude ohne Tür.</li>
+      <li><strong>Fenster hinter einem Anbau werden ausgelassen.</strong> Wenn ein angebauter Gebäudeteil eine Wandfläche komplett verdeckt, wird dort kein Fenster platziert — auch wenn das Baukörpermodul eines vorsähe.</li>
+      <li><strong>Nicht jedes Baukörpermodul deckt jedes Element ab.</strong> Ob ein Gebäude einen Keller, Balkone oder Dachfenster bekommt, hängt einzig vom zugeordneten Modul ab — fehlt ein Element in der Ausgabe, ist meist zuerst zu prüfen, ob es im Modul überhaupt vorgesehen war.</li>
+    </ul>
+  </section>
+</section>
+
+<!-- ============ ADMINISTRIERENDE ============ -->
+<section class="panel" id="p-admin" role="tabpanel" aria-labelledby="t-admin" hidden>
+  <p class="lead">Installation, Konfiguration, Ausführung, Verifikation. Für Architektur/Algorithmen siehe <em>Programmierende</em>, für fachliche Einordnung der Ausgabe <em>Benutzende</em>.</p>
+
+  <section>
+    <h2>Voraussetzungen &amp; Build</h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Komponente</th><th>Version</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Java</td><td>21+</td></tr>
+        <tr><td class="k">Maven</td><td>3.6+</td></tr>
+        <tr><td class="k">citygml4j</td><td>3.2.7 (wird automatisch heruntergeladen)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cmd"><div class="cmdlbl">Build</div><pre>mvn clean package</pre><button class="copy" data-copy="mvn clean package">Kopieren</button></div>
+    <p>Ergebnis: <span class="mono">target/lod2-zu-lod3-pipeline.jar</span> (Main-Class <span class="mono">Lod2ToLod3Pipeline</span>), plus JARs für jeden Einzelschritt.</p>
+  </section>
+
+  <section>
+    <h2>Ausführung</h2>
+    <h3>Einzelne Datei</h3>
+    <div class="cmd"><div class="cmdlbl">Einzeldatei</div><pre>java -jar target/lod2-zu-lod3-pipeline.jar  input.gml  Baukörpermodule_json/  output/  [dgm-pfad]</pre><button class="copy" data-copy="java -jar target/lod2-zu-lod3-pipeline.jar  input.gml  Baukörpermodule_json/  output/  [dgm-pfad]">Kopieren</button></div>
+    <p>Schreibt eine Ausgabedatei nach <span class="mono">output/</span>, dabei <span class="mono">LoD2_...</span> → <span class="mono">LoD3_...</span> umbenannt (und <span class="mono">_BuildingPreferences</span> entfernt).</p>
+
+    <h3>Ganzer Ordner (Batch-Modus)</h3>
+    <p>Wird automatisch erkannt, wenn das erste Argument ein Ordner statt einer Datei ist:</p>
+    <div class="cmd"><div class="cmdlbl">Batch</div><pre>java -jar target/lod2-zu-lod3-pipeline.jar  inputFolder/  Baukörpermodule_json/  output/  [dgm-pfad]</pre><button class="copy" data-copy="java -jar target/lod2-zu-lod3-pipeline.jar  inputFolder/  Baukörpermodule_json/  output/  [dgm-pfad]">Kopieren</button></div>
+    <p>Verarbeitet alle <span class="mono">.gml</span>-Dateien im Ordner nacheinander (sequenziell — Grund siehe <em>Programmierende</em>). Legt unter <span class="mono">output/</span> einen neuen Unterordner an, dessen Name wie bei den Dateien <span class="mono">LoD2_...</span>→<span class="mono">LoD3_...</span> umbenannt ist (enthält der Ordnername kein „LoD2“, wird <span class="mono">_LoD3</span> angehängt). Bricht eine Kachel ab, läuft der Rest weiter — am Ende: Liste der fehlgeschlagenen Dateien + aufsummierte Gesamtstatistik über alle erfolgreichen Kacheln.</p>
+    <div class="cmd"><div class="cmdlbl">Beispiel-Log (Ausschnitt)</div><pre>[1/98] Verarbeite LoD2_33_400_5654_2_SN_BuildingPreferences.gml ...
+[1/98] fertig: 215 Gebaeude, 2.260 s -&gt; LoD3_33_400_5654_2_SN.gml
+...
+Batch abgeschlossen: 98 von 98 Kacheln erfolgreich
+Gesamtzeit: 962.674 s
+Schritt 1 — Promotion:  141670 Gebaeude, 1946543 Geometrien hochgestuft
+Schritt 2 — Keller:     63878 Keller
+...</pre></div>
+
+    <h3>Einzelne Schritte standalone</h3>
+    <div class="cmd"><div class="cmdlbl">Standalone-Schritte</div><pre>java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.Lod2ToLod3Promoter   input.gml  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.BasementGenerator    input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.StoreyGenerator      input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.DoorGenerator        input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.WindowGenerator      input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.BalconyGenerator     input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.RoofWindowGenerator  input.gml  jsonDir/  [output.gml]</pre><button class="copy" data-copy="java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.Lod2ToLod3Promoter   input.gml  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.BasementGenerator    input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.StoreyGenerator      input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.DoorGenerator        input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.WindowGenerator      input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.BalconyGenerator     input.gml  jsonDir/  [output.gml]
+java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.RoofWindowGenerator  input.gml  jsonDir/  [output.gml]">Kopieren</button></div>
+    <p>Nützlich zum isolierten Testen eines Schritts — der Junction-Conforming-/Pinch-Split-Schritt läuft nur im Pipeline-Modus.</p>
+  </section>
+
+  <section>
+    <h2>GUI (Desktop-Anwendung)</h2>
+    <p class="sec-note">Für Nutzende ohne CMD/PowerShell/IDE — z. B. Projektpartner — gibt es eine eigenständige <span class="mono">.exe</span> mit grafischer Oberfläche, die exakt dieselbe, bereits verifizierte Pipeline-Logik aufruft wie die Kommandozeile.</p>
+    <h3>Herunterladen/Starten</h3>
+    <p><span class="mono">LoD2zuLoD3.zip</span> entpacken, <span class="mono">LoD2zuLoD3.exe</span> im entpackten Ordner doppelklicken. Kein Java, kein CMD nötig — die Laufzeit ist eingebettet. Der allererste Start kann etwas dauern (Windows prüft eine neue, unsignierte <span class="mono">.exe</span> einmalig), danach startet es normal schnell.</p>
+    <h3>Bedienung</h3>
+    <ol>
+      <li><strong>Modus</strong>: Einzelne Datei oder Ordner (Batch).</li>
+      <li><strong>CityGML-Datei/Ordner</strong>: die Eingabe (LoD2).</li>
+      <li><strong>Baukörpermodule (JSON-Ordner)</strong>: Pflichtfeld.</li>
+      <li><strong>DGM</strong> (optional): Datei oder Ordner — ohne Angabe automatisch flache TerrainIntersectionCurve.</li>
+      <li><strong>Ausgabeordner</strong>: Pflichtfeld.</li>
+      <li><strong>Erweiterte Optionen</strong> (aufklappbar): einzelne Pipeline-Schritte abwählen, siehe unten.</li>
+      <li><strong>Konvertierung starten</strong> — Fortschrittsbalken mit echten Werten und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.</li>
+    </ol>
+    <h3>Erweiterte Optionen: einzelne Schritte abwählen</h3>
+    <p>Alle sechs optionalen Schritte (Keller, Geschosse, Türen, Fenster, Balkone, Dachfenster) sind per Häkchen einzeln abwählbar, Standard ist „alle an“. Die Häkchen bilden eine kleine Hierarchie, kein Satz von sechs unabhängigen Schaltern:</p>
+    <div class="outcomes">
+      <div class="outcome yes"><div class="otop"><span class="odot"></span><h4>Geschosse angehakt</h4></div><p>Türen, Fenster, Balkone einzeln wie gewohnt wählbar.</p></div>
+      <div class="outcome no"><div class="otop"><span class="odot"></span><h4>Geschosse abgewählt</h4></div><p>Türen/Fenster/Balkone werden automatisch mit abgewählt <strong>und gesperrt</strong> (ausgegraut, mit Tooltip) — beim erneuten Anhaken kommt der vorherige Zustand zurück.</p></div>
+    </div>
+    <p>Grund: ohne Geschosse gibt es keine eigene Erdgeschoss-/Obergeschoss-Wand — die Original-LoD2-Wand ist ein einziges Polygon von Boden bis Traufe, auf dem Türen/Fenster/Balkone nicht sinnvoll platzieren können. <strong>Keller und Dachfenster sind davon unabhängig</strong> und bleiben immer frei wählbar, z. B. für einen schnellen Testlauf „nur Keller + Dachfenster“.</p>
+    <p style="font-size:.88rem; color:var(--ink-faint);">Die strukturellen Schritte 1 (LoD2→LoD3-Umstufung) und 6+7 (T-Naht-Konformierung/Pinch-Point-Aufspaltung) laufen immer und sind nicht abwählbar.</p>
+    <p>Technische Details zur GUI (Bibliotheken, Architektur, warum das Abwählen gefahrlos möglich ist): siehe <em>Programmierende</em>.</p>
+  </section>
+
+  <section>
+    <h2>JSON-Baukörpermodule</h2>
+    <p class="sec-note">Jedes Gebäude wird über sein <span class="mono">sst</span>-Attribut einem Modul (<span class="mono">{sst}.json</span> im JSON-Ordner) zugeordnet. <span class="mono">ModuleParametersLoader</span> matcht dabei auch ohne <span class="mono">_4</span>-Suffix (<span class="mono">MRG3_4.json</span> ist unter <span class="mono">MRG3</span> UND <span class="mono">MRG3_4</span> auffindbar). Fehlt eine passende Datei, wird <span class="mono">_default.json</span> verwendet.</p>
+
+    <div class="callout"><div class="ctitle">Vollständiges Test-Modul</div><p>Für Tests, die alle Features gleichzeitig auslösen sollen (Keller, Kellerfenster, EG-/OG-Fenster, Dachfenster, Balkon, Tür), eignet sich <span class="mono">MRG3_4.json</span> (bzw. <span class="mono">MRO7_4</span> / <span class="mono">MRO3_4</span> / <span class="mono">MR6_4</span> / <span class="mono">MR5_4</span>) — diese 5 der 32 mitgelieferten Module decken als einzige alle 7 Kernfeatures gleichzeitig ab.</p></div>
+
+    <div class="acc">
+      <details open>
+        <summary><span class="num">BA</span><span class="tt">Basement — Keller</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <div class="tbl-wrap"><table><thead><tr><th>Feld</th><th>JSON-Key</th><th>Bedeutung</th></tr></thead><tbody>
+            <tr><td>Höhe</td><td class="k">height</td><td>Kellerhöhe in m</td></tr>
+            <tr><td>Deckendicke</td><td class="k">CeHe</td><td>m</td></tr>
+            <tr><td>Fenster</td><td class="k">window</td><td>siehe <span class="mono">WindowParams</span></td></tr>
+            <tr><td>Tür</td><td class="k">door</td><td>siehe <span class="mono">DoorParams</span></td></tr>
+          </tbody></table></div>
+        </div>
+      </details>
+      <details>
+        <summary><span class="num">GF</span><span class="tt">Ground Floor — Erdgeschoss</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <div class="tbl-wrap"><table><thead><tr><th>Feld</th><th>JSON-Key</th><th>Bedeutung</th></tr></thead><tbody>
+            <tr><td>Höhe</td><td class="k">height</td><td>Geschosshöhe in m</td></tr>
+            <tr><td>Höhe über Gelände</td><td class="k">heightGr</td><td>oberirdischer Kelleranteil</td></tr>
+            <tr><td>Deckendicke</td><td class="k">CeHe</td><td>m</td></tr>
+            <tr><td>Fenster</td><td class="k">window</td><td>siehe <span class="mono">WindowParams</span></td></tr>
+            <tr><td>Tür</td><td class="k">door</td><td>siehe <span class="mono">DoorParams</span></td></tr>
+          </tbody></table></div>
+        </div>
+      </details>
+      <details>
+        <summary><span class="num">UF</span><span class="tt">Upper Floor — Obergeschoss</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <div class="tbl-wrap"><table><thead><tr><th>Feld</th><th>JSON-Key</th><th>Bedeutung</th></tr></thead><tbody>
+            <tr><td>Höhe</td><td class="k">height</td><td>Geschosshöhe in m (wird pro OG wiederholt)</td></tr>
+            <tr><td>Deckendicke</td><td class="k">CeHe</td><td>m</td></tr>
+            <tr><td>Polygon-Höhe erweitern</td><td class="k">extPolyHeight</td><td>bool</td></tr>
+            <tr><td>Fenster</td><td class="k">window</td><td>siehe <span class="mono">WindowParams</span></td></tr>
+          </tbody></table></div>
+        </div>
+      </details>
+      <details>
+        <summary><span class="num">RO</span><span class="tt">Roof — Dach</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <p><span class="mono">window</span> (siehe <span class="mono">WindowParams</span>) + <span class="mono">shape</span>: <span class="mono">Typ</span> (Dachtyp, 1 = Satteldach etc.), <span class="mono">RiHe</span> (Firsthöhe), <span class="mono">HSiTi</span>/<span class="mono">VSiTi</span>/<span class="mono">HFrTi</span>/<span class="mono">VFrTi</span> (Neigungsparameter — nur für die Ausgangs-Erzeugung im Quellwerkzeug relevant; die Pipeline übernimmt die reale LoD2-Dachgeometrie und konstruiert kein Dach neu).</p>
+        </div>
+      </details>
+      <details>
+        <summary><span class="num">UT</span><span class="tt">Utilities — Versorgungsschächte</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <p><span class="mono">HDistWaPo</span>/<span class="mono">HDistWaPo2</span> (horizontaler Abstand Wand–Schacht), <span class="mono">VDistFlPo</span> (vertikaler Abstand), <span class="mono">SiX</span>/<span class="mono">SiY</span>/<span class="mono">SiZ</span> (Schachtgröße), <span class="mono">DoUF</span>/<span class="mono">DoGF</span>/<span class="mono">DoBA</span> (in OG/EG/Keller?), <span class="mono">NrUt</span> (Anzahl).</p>
+        </div>
+      </details>
+      <details>
+        <summary><span class="num">GA</span><span class="tt">Gallery — Balkon/Terrasse</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <div class="tbl-wrap"><table><thead><tr><th>Feld</th><th>JSON-Key</th><th>Bedeutung</th></tr></thead><tbody>
+            <tr><td>Balkonlänge/-breite</td><td class="k">GaLen / GaWid</td><td>m</td></tr>
+            <tr><td>Brüstungshöhe</td><td class="k">GaHe</td><td>m</td></tr>
+            <tr><td>Abstand Wand–Balkon</td><td class="k">HDistWaGa</td><td>m, Anker für den führenden Lauf</td></tr>
+            <tr><td>Abstand Balkon–Balkon</td><td class="k">HDistGaGa</td><td>m, innerhalb eines zusammenhängenden Laufs</td></tr>
+            <tr><td>Mindestabstand Wand–Balkon</td><td class="k">HDistMinWaGa</td><td>m</td></tr>
+            <tr><td>Abstand Fenster–Balkon</td><td class="k">HDistWiGa</td><td>m, Anker für Folge-Läufe nach Fenstern</td></tr>
+            <tr><td>Balkontür-Breite/-Höhe</td><td class="k">WiLen / WiHe</td><td>m</td></tr>
+            <tr><td>Abstand Wand–Balkontür</td><td class="k">HDistWaWi</td><td>m</td></tr>
+            <tr><td>Abstand Balkontür–Balkon</td><td class="k">DistWiGa</td><td>m</td></tr>
+            <tr><td>Muster</td><td class="k">GaPa</td><td>z. B. „GaWiWiGa“ — Reihenfolge von Balkon-/Fenster-Slots</td></tr>
+          </tbody></table></div>
+        </div>
+      </details>
+      <details>
+        <summary><span class="num">IN</span><span class="tt">Interior — Innenraum</span><span class="arrow">▸</span></summary>
+        <div class="body"><p><span class="mono">HIn</span>/<span class="mono">VIn</span> (horizontale/vertikale Raumteilung, Anzahl), <span class="mono">MinInSi</span> (Mindest-Raumgröße m²) — aktuell nicht in Geometrie umgesetzt (kein Pipeline-Schritt dafür).</p></div>
+      </details>
+      <details>
+        <summary><span class="num">FL</span><span class="tt">Stairwell — Treppenhaus</span><span class="arrow">▸</span></summary>
+        <div class="body"><p><span class="mono">IDistStWa</span> (innerer Abstand Treppe–Wand), <span class="mono">StLen</span>/<span class="mono">StWid</span> (Treppenhaus-Maße) — aktuell nicht in Geometrie umgesetzt.</p></div>
+      </details>
+      <details>
+        <summary><span class="num">BU</span><span class="tt">Building — Gebäude-Metadaten</span><span class="arrow">▸</span></summary>
+        <div class="body"><p><span class="mono">BA</span> (hat Keller? bool — zusammen mit <span class="mono">BA.height&gt;0</span> Voraussetzung für den Keller-Schritt), <span class="mono">GFRo</span> (EG bis Dach durchgehend?), <span class="mono">BuLen</span>/<span class="mono">BuWid</span>/<span class="mono">BuHe</span> (Gebäudemaße), <span class="mono">RoSh</span> (Dachform 1–4), <span class="mono">BaDo</span> (hat Kellertür?), <span class="mono">EnDi</span> (Eingangsrichtungen 1–4 — Seitennummerierung des idealisierten Rechtecks, nicht verlässlich auf reale Wand-IDs übertragbar, daher aktuell nicht zur Wandauswahl genutzt), <span class="mono">SID</span> (Struktur-ID, entspricht meist dem Dateinamen/<span class="mono">sst</span>).</p></div>
+      </details>
+      <details>
+        <summary><span class="num">FD</span><span class="tt">Facade Details — Materialien</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Je Bauteil (<span class="mono">WallAttr</span>, <span class="mono">CeilingAttr</span>, <span class="mono">Window</span>, <span class="mono">FacadeAttr</span>, <span class="mono">Groundsurface</span>, <span class="mono">FoundationAttr</span>, <span class="mono">Interiorwallsurface</span>, <span class="mono">Door</span>, <span class="mono">GalleryDoor</span>, <span class="mono">Closuresurface</span>) ein Objekt mit <span class="mono">typ</span> (Kürzel), <span class="mono">description</span>, <span class="mono">vulnerability</span> (Zahl) — reine Metadaten, fließen nicht in die Geometrie ein.</p></div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <h2>DGM-Einrichtung</h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Format</th><th>Dateiendung</th></tr></thead>
+      <tbody>
+        <tr><td>ESRI ASCII Grid</td><td class="k">.asc</td></tr>
+        <tr><td>GeoTIFF</td><td class="k">.tif, .tiff</td></tr>
+        <tr><td>ZIP-Archiv (enthält .asc/.tif, wird on-the-fly gelesen)</td><td class="k">.zip</td></tr>
+        <tr><td>Verzeichnis (rekursiv gescannt, als Mosaik kombiniert)</td><td class="k">Ordnerpfad</td></tr>
+      </tbody>
+    </table></div>
+    <p>Format wird automatisch anhand der Datei-/Pfadendung erkannt. Ein Verzeichnis mit mehreren Kacheln wird zu einem virtuellen Mosaik kombiniert — z. B. alle 117 DGM1-Kacheln für Dresden als ein durchgehendes Geländemodell:</p>
+    <div class="tree">DGM/Dresden/
+<span class="cm">├──</span> <span class="f">dgm1_33_400_5654_2_sn_tiff.zip</span>
+<span class="cm">├──</span> ...                              <span class="cm">(117 Kacheln)</span></div>
+    <div class="cmd"><div class="cmdlbl">Mit DGM-Mosaik</div><pre>java -jar target/lod2-zu-lod3-pipeline.jar input.gml jsonDir/ output/ DGM/Dresden/</pre><button class="copy" data-copy="java -jar target/lod2-zu-lod3-pipeline.jar input.gml jsonDir/ output/ DGM/Dresden/">Kopieren</button></div>
+    <p><strong>Ohne DGM-Argument</strong> wird automatisch eine flache TerrainIntersectionCurve bei <span class="mono">Z = H_DGM</span> erzeugt — kein Schalter nötig, das ist der Default-Fallback (siehe Troubleshooting unten).</p>
+  </section>
+
+  <section>
+    <h2>Ausgabe</h2>
+    <p>Ausgabedatei/-ordner: <span class="mono">LoD2_...</span> → <span class="mono">LoD3_...</span> umbenannt (Dateien zusätzlich ohne <span class="mono">_BuildingPreferences</span>-Suffix). Jedes hochgestufte Gebäude bekommt Metadaten-Attribute, u. a.:</p>
+    <div class="cmd"><div class="cmdlbl">Beispiel-Metadaten</div><pre>&lt;gen:stringAttribute name="lod2ToLod3Promotion"&gt;
+  &lt;gen:value&gt;promoted=true; count=13; types=[...]; timestamp=...&lt;/gen:value&gt;
+&lt;/gen:stringAttribute&gt;
+&lt;gen:stringAttribute name="storeysGenerated"&gt;&lt;gen:value&gt;3&lt;/gen:value&gt;&lt;/gen:stringAttribute&gt;</pre></div>
+    <p>CityGML 1.0 kennt kein natives <span class="mono">BuildingStorey</span>-Element — Geschosse sind <span class="mono">FloorSurface</span>/<span class="mono">CeilingSurface</span> mit <span class="mono">Geschoss</span>-Attribut (<span class="mono">GF</span>, <span class="mono">UF_1</span>, <span class="mono">UF_2</span>, …, <span class="mono">BA</span>).</p>
+  </section>
+
+  <section>
+    <h2>Verifikationswerkzeuge</h2>
+    <h3>Schema-Validierung</h3>
+    <div class="cmd"><div class="cmdlbl">citygml-tools</div><pre>D:\Tools\citygml-tools-2.5.0\citygml-tools validate output.gml</pre><button class="copy" data-copy="D:\Tools\citygml-tools-2.5.0\citygml-tools validate output.gml">Kopieren</button></div>
+
+    <h3>val3dity — geometrische Solid-Validität</h3>
+    <p>Erst nach CityJSON konvertieren, dann prüfen (funktioniert auch für ganze Ordner in einem Aufruf):</p>
+    <div class="cmd"><div class="cmdlbl">val3dity</div><pre>D:\Tools\citygml-tools-2.5.0\citygml-tools to-cityjson -o cityjson_out/ output.gml
+D:\Tools\val3dity-win64\val3dity.exe cityjson_out/output.json</pre><button class="copy" data-copy="D:\Tools\citygml-tools-2.5.0\citygml-tools to-cityjson -o cityjson_out/ output.gml
+D:\Tools\val3dity-win64\val3dity.exe cityjson_out/output.json">Kopieren</button></div>
+    <p>Ohne <span class="mono">--overlap_tol</span>-Option ausführen — die Option ist bei Mehrteil-Gebäuden auf größeren Kacheln instabil (siehe <em>Programmierende</em>). Ergebnis-Interpretation: siehe <em>Benutzende</em>.</p>
+
+    <h3>CityDoctor2 — semantische Prüfung</h3>
+    <div class="callout"><div class="ctitle">Immer mit Projekt-Konfiguration</div><p>Ohne <span class="mono">-c</span> nutzt die CLI einen unvollständigen Default-Prüfplan und übersieht echte Fehler.</p></div>
+    <div class="cmd"><div class="cmdlbl">CityDoctor2</div><pre>java -cp "D:\Tools\CityDoctorGUI-3.18.2-win\app\*" de.hft.stuttgart.citydoctor2.CityDoctorValidationCLI ^
+  -i output.gml -x report.xml -c "&lt;Pfad zur Projekt-config.yml&gt;"</pre><button class="copy" data-copy='java -cp "D:\Tools\CityDoctorGUI-3.18.2-win\app\*" de.hft.stuttgart.citydoctor2.CityDoctorValidationCLI -i output.gml -x report.xml -c "<Pfad zur Projekt-config.yml>"'>Kopieren</button></div>
+    <p><strong>Wichtig:</strong> aus dem Verzeichnis <span class="mono">D:\Tools\CityDoctorGUI-3.18.2-win\</span> heraus starten — die Konfiguration referenziert <span class="mono">schematronPath: checkForSolid.xml</span> relativ, die Datei liegt nur dort. Enthält der Konfigurationspfad Umlaute, kann das bei Aufruf aus einem PowerShell-Subprozess zu <span class="mono">FileNotFoundException</span> führen (Windows-Codepage-Problem über mehrere Prozessebenen) — im Zweifel einen umlautfreien Kopie-Pfad verwenden.</p>
+  </section>
+
+  <section>
+    <h2>Troubleshooting</h2>
+    <h3>Gebäude bekommt keinen Keller / keine Geschossunterteilung</h3>
+    <p><span class="mono">BasementGenerator</span> und <span class="mono">StoreyGenerator</span> lesen <span class="mono">H_DGM</span> als <strong>generisches Attribut direkt vom Gebäude</strong> — keine Laufzeitberechnung, auch nicht aus einem übergebenen DGM. Fehlt dieses Attribut, überspringen beide Schritte das Gebäude komplett (kein Keller, keine Geschossunterteilung, dadurch vermutlich auch keine Türen/Fenster/Balkone, da diese Schritte auf Geschossen aufbauen).</p>
+    <p><strong>Betrifft insbesondere Testläufe mit Daten anderer Städte/Bundesländer:</strong> <span class="mono">H_DGM</span> ist in den Dresdner Testdaten Standard, aber nicht garantiert Teil jedes LoD2-Exports. Vor einem Testlauf prüfen, ob das Attribut vorhanden ist — falls nicht, z. B. aus dem Minimum der eigenen <span class="mono">GroundSurface</span>-Z-Werte des Gebäudes ableiten und ergänzen (die GroundSurface-Geometrie ist in jeder Standard-LoD2-Datei vorhanden).</p>
+    <h3>Batch-Modus: eine Kachel schlägt fehl, der Rest läuft trotzdem weiter</h3>
+    <p>Erwartetes Verhalten — der Fehler wird geloggt, die betroffene Kachel fehlt in der Ausgabe, alle anderen werden trotzdem verarbeitet. Am Ende steht eine Liste der fehlgeschlagenen Dateinamen im Log. Bei einem <span class="mono">TopologyException</span>-artigen JTS-Fehler: einzeln reproduzieren (Einzeldatei-Modus) und den vollen Stack-Trace prüfen, meist eine geometrische Randbedingung (siehe <em>Programmierende</em>, „Bekannte offene Punkte“).</p>
+  </section>
+</section>
+
+<!-- ============ PROGRAMMIERENDE ============ -->
+<section class="panel" id="p-dev" role="tabpanel" aria-labelledby="t-dev" hidden>
+  <p class="lead">Architektur, Algorithmen, Code-Organisation, offene Punkte. Für Aufruf/Konfiguration siehe <em>Administrierende</em>, für fachliche Einordnung der Ausgabe <em>Benutzende</em>.</p>
+
+  <section>
+    <h2>Architektur</h2>
+    <p><strong>Single-Pass:</strong> Eingabedatei wird einmal gelesen, pro Gebäude laufen alle Schritte im Speicher, Ergebnis wird einmal geschrieben — keine Zwischendateien (<span class="mono">CityGmlUtils.processGmlFile</span>).</p>
+    <div class="sheet">
+      <span class="c3"></span><span class="c4"></span>
+      <div class="sheet-cap"><span>Pipeline · pro Building</span><span>Einlesen → Verarbeiten → Schreiben</span></div>
+      <div class="flow">
+        <div class="fstep"><div class="dot">1</div><h4>Lod2ToLod3Promoter</h4><p>LoD2 → LoD3 Geometrie-Slot</p></div>
+        <div class="fstep"><div class="dot">2</div><h4>BasementGenerator</h4><p>Keller</p></div>
+        <div class="fstep"><div class="dot">3</div><h4>StoreyGenerator</h4><p>Geschosse</p></div>
+        <div class="fstep"><div class="dot">4</div><h4>DoorGenerator</h4><p>Türen</p></div>
+        <div class="fstep sub"><div class="dot">5a</div><h4>BalconyGenerator</h4><p>Balkone, führender Lauf</p></div>
+        <div class="fstep sub"><div class="dot">5b</div><h4>WindowGenerator</h4><p>Fenster</p></div>
+        <div class="fstep sub"><div class="dot">5c</div><h4>BalconyGenerator</h4><p>Balkone, Rest-Läufe</p></div>
+        <div class="fstep sub"><div class="dot">5d</div><h4>RoofWindowGenerator</h4><p>Dachflächenfenster</p></div>
+        <div class="fstep"><div class="dot">4d</div><h4>DoorGenerator — Fallback</h4><p>Ersatztür bei Fenstern ohne jede Tür</p></div>
+        <div class="fstep"><div class="dot">6</div><h4>JunctionConformingUtils.conformJunctions</h4><p>T-Naht-Vertices</p></div>
+        <div class="fstep"><div class="dot">7</div><h4>JunctionConformingUtils.splitSelfTouchingRings</h4><p>Pinch-Point-Split</p></div>
+      </div>
+    </div>
+    <p>Schritte 6+7 sind <strong>streng formneutral</strong>: kein bestehender Vertex wird verschoben, nur fehlende Punkte auf bestehende Kanten eingefügt bzw. selbstberührende Ringe sauber aufgetrennt.</p>
+    <p><strong>Batch-Modus:</strong> <span class="mono">Lod2ToLod3Pipeline.main()</span> erkennt automatisch, ob <span class="mono">args[0]</span> eine Datei oder ein Ordner ist. Bei einem Ordner läuft <span class="mono">runBatch()</span> — sequenziell, ein <span class="mono">processSingleFile()</span>-Aufruf je Kachel mit frischen Generator-Instanzen (kein Shared State zwischen Kacheln). Bewusst sequenziell: <span class="mono">ModuleParametersLoader</span> cached in einer nicht-thread-sicheren <span class="mono">HashMap</span>.</p>
+
+    <h3>AbstractGenerator (Template-Method)</h3>
+    <p>Alle JSON-parametrisierten Generatoren (<span class="mono">BasementGenerator</span>, <span class="mono">StoreyGenerator</span>, <span class="mono">DoorGenerator</span>, <span class="mono">WindowGenerator</span>, <span class="mono">BalconyGenerator</span>, <span class="mono">RoofWindowGenerator</span>) erben von <span class="mono">AbstractGenerator&lt;S&gt;</span>:</p>
+    <ul>
+      <li><span class="mono">runCli</span> — Arg-Parsing, Verzeichnis-Erstellung, Logging</li>
+      <li><span class="mono">process</span> — Lese-/Schreibschleife über <span class="mono">CityGmlUtils.processGmlFile</span></li>
+      <li><span class="mono">BaseStats</span> — gemeinsame Statistik-Basis, jeder Generator erweitert sie</li>
+      <li><span class="mono">resolveParams</span> — <span class="mono">sst</span>-Attribut → passendes Baukörpermodul</li>
+      <li>Hook <span class="mono">onConfigure(args)</span> für Zusatz-Argumente (z. B. DGM bei <span class="mono">BasementGenerator</span>)</li>
+    </ul>
+    <p>Eine konkrete Unterklasse implementiert nur <span class="mono">outputSuffix()</span>, <span class="mono">displayName()</span>, <span class="mono">newStats()</span>, <span class="mono">processBuilding(...)</span>, <span class="mono">logResult(...)</span>. <span class="mono">Lod2ToLod3Promoter</span> (Schritt 1) fällt bewusst aus diesem Schema (kein JSON, keine <span class="mono">sst</span>-Auflösung).</p>
+  </section>
+
+  <section>
+    <h2>Projektstruktur</h2>
+    <div class="tree">src/main/java/de/mpsc/lod2tolod3/
+<span class="cm">├──</span> <span class="f">Lod2ToLod3Pipeline.java</span>         <span class="cm">Haupt-Pipeline (Single-Pass + Batch-Modus)</span>
+<span class="cm">├──</span> <span class="f">Lod2ToLod3Promoter.java</span>         <span class="cm">Schritt 1</span>
+<span class="cm">├──</span> <span class="f">AbstractGenerator.java</span>          <span class="cm">Template-Method-Basis</span>
+<span class="cm">├──</span> <span class="f">BasementGenerator.java</span>          <span class="cm">Schritt 2</span>
+<span class="cm">├──</span> <span class="f">StoreyGenerator.java</span>            <span class="cm">Schritt 3</span>
+<span class="cm">├──</span> <span class="f">DoorGenerator.java</span>              <span class="cm">Schritt 4 + 4d (inkl. Fallback-Tür)</span>
+<span class="cm">├──</span> <span class="f">WindowGenerator.java</span>            <span class="cm">Schritt 5b</span>
+<span class="cm">├──</span> <span class="f">BalconyGenerator.java</span>           <span class="cm">Schritt 5a/5c</span>
+<span class="cm">├──</span> <span class="f">RoofWindowGenerator.java</span>        <span class="cm">Schritt 5d</span>
+<span class="cm">├──</span> <span class="f">util/</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">CityGmlUtils.java</span>           <span class="cm">Attribut-Helfer, GML-I/O, SRS</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">GeometryUtils.java</span>          <span class="cm">Geometrie-Grundlagen (Basis der meisten anderen)</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">BuildingQueryUtils.java</span>     <span class="cm">Boundary-/Target-Sammlung, Dach-Z-Bereich</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">WallCuttingUtils.java</span>       <span class="cm">Sutherland-Hodgman + JTS-Bandschnitt</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">SlabClippingUtils.java</span>      <span class="cm">Geschossflächen-Zuschnitt bei Anbauten (JTS)</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">SolidShellUtils.java</span>        <span class="cm">TerrainIntersectionCurve + Solid-Shell-Neuaufbau</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">JunctionConformingUtils.java</span> <span class="cm">T-Naht-Konformierung + Pinch-Point-Aufspaltung</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">OpeningUtils.java</span>           <span class="cm">Fenster-/Tür-Platzierungsprüfung und -Erzeugung</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">PartyWallCoverageUtils.java</span> <span class="cm">Wand-Deckung durch Nachbarbauteile (Anbau)</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">Point3D.java</span>                <span class="cm">3D-Punkt-Klasse</span>
+<span class="cm">│</span>   <span class="cm">├──</span> <span class="f">DgmLoader / DgmReader / GeoTiffReader / DgmMosaic / DgmProvider</span>
+<span class="cm">│</span>   <span class="cm">└──</span> <span class="f">ModuleParametersLoader.java</span> <span class="cm">JSON-Parameter laden + cachen</span>
+<span class="cm">└──</span> <span class="f">model/</span>
+    <span class="cm">├──</span> <span class="f">ModuleParameters.java</span>       <span class="cm">Datenklasse für JSON-Baukörpermodule (10 Kategorien)</span>
+    <span class="cm">└──</span> <span class="f">WindowPreference.java</span>       <span class="cm">Enum: NONE/NORMAL/ABOVE_NEIGHBOR</span></div>
+    <p style="margin-top:14px;"><strong>Code-Organisation</strong> (Stand 2026-09-01): <span class="mono">CityGmlUtils.java</span> war auf 2.186 Zeilen mit 13 Themenblöcken angewachsen und wurde in die obigen 9 <span class="mono">util/</span>-Klassen aufgeteilt (reine Verschiebung, per Vollkachel-Diff als verhaltensneutral verifiziert). Package-private Sichtbarkeit reicht für Cross-Klassen-Aufrufe, <span class="mono">import static</span> bewusst nicht verwendet (Herkunft am Aufrufort bleibt sichtbar, z. B. <span class="mono">GeometryUtils.createPolygon(...)</span>).</p>
+  </section>
+
+  <section>
+    <h2>Pipeline-Schritte: Algorithmen</h2>
+    <div class="acc">
+      <details open>
+        <summary><span class="num">01</span><span class="tt">Lod2ToLod3Promoter</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Nutzt citygml4j-Basisklassen (<span class="mono">AbstractThematicSurface</span>, <span class="mono">AbstractSpace</span>) generisch — erfasst automatisch jede LoD2-Geometrie (<span class="mono">lod2MultiSurface</span>→<span class="mono">lod3MultiSurface</span>, <span class="mono">lod2Solid</span>→<span class="mono">lod3Solid</span>, <span class="mono">lod2MultiCurve</span>→<span class="mono">lod3MultiCurve</span>) über alle Boundary-Klassen (Wall/Roof/Ground/Ceiling/Floor/Interior/Closure), ohne die Geometrie selbst zu verändern. Benennt <span class="mono">LOD2_*</span>-Attribute/-Namen auf <span class="mono">LOD3_*</span> um.</p></div>
+      </details>
+      <details>
+        <summary><span class="num">02</span><span class="tt">BasementGenerator</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Ersetzt die originale <span class="mono">GroundSurface</span> durch die physische Bodenplatte + Kellerwände, dokumentiert den ursprünglichen Geländeschnitt als <span class="mono">TerrainIntersectionCurve</span>. Kelleroberkante = <span class="mono">H_DGM + heightGr</span> (oberirdischer Kelleranteil aus dem JSON-Modul). <span class="mono">H_DGM</span> ist ein generisches Attribut pro Gebäude aus den LoD2-Quelldaten, keine Laufzeitberechnung.</p></div>
+      </details>
+      <details>
+        <summary><span class="num">03</span><span class="tt">StoreyGenerator</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <p>Kernstück der Pipeline. Pro Geschoss:</p>
+          <ul>
+            <li><strong>Wandschnitt:</strong> <span class="mono">WallCuttingUtils.cutWallAtMultipleZJTS</span> — JTS-Bandschnitt im wandeigenen (u,v)-Profil, robust auch bei konkaven Profilen (Wand mit Anbau-Kerbe), löste den älteren Sutherland-Hodgman-Einzelschnitt (<span class="mono">cutWallPolygonAtZ</span>, noch für Basement-Schnitte verwendet) ab.</li>
+            <li><strong>Boden-/Deckenzuschnitt bei Anbauten:</strong> <span class="mono">SlabClippingUtils.clipSlabAtZ</span> — echte 2D-Polygon-Differenz (JTS <span class="mono">Polygon.difference()</span>): <span class="mono">slab(z) = Grundriss − (Dachanteile ≤ z)</span>. Liefert eine Liste von <span class="mono">SlabPiece</span>s (mehrere Teilstücke möglich, wenn ein Anbau das Gebäude in Flügel teilt).</li>
+            <li><strong>Flachdach-Erkennung:</strong> First-/Traufhöhe aus allen <span class="mono">RoofSurface</span>-Punkten; Differenz &lt; 0,30 m → keine <span class="mono">CeilingSurface</span> am obersten Geschoss (Dach = Decke).</li>
+            <li><strong>Mischdach-Erkennung:</strong> bei gemischt geneigten/flachen Dachflächen wird die oberste Decke nur aus den auf <span class="mono">traufeZ</span> projizierten geneigten Dachpolygonen erzeugt, nicht aus dem vollen Grundriss — verhindert eine Decke, die über einem niedrigeren Anbau-Flachdach schwebt.</li>
+          </ul>
+        </div>
+      </details>
+      <details>
+        <summary><span class="num">04</span><span class="tt">DoorGenerator (4 + 4d)</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Platziert Türen auf EG-Außenwänden (TIC-basierte Positionierung, <span class="mono">HDistDoWa</span>-Anker). Schritt 4d (<span class="mono">processFallbackDoors</span>, läuft nach 5b/5d) ergänzt genau eine Tür für Gebäude mit Fenstern aber <span class="mono">DoorCount=0</span> überall (bestätigte Quelldatenlücke in der Adresspunkt-Zuordnung) — Wandauswahl: breiteste EG-Wand zuerst (FACEAREA-sortiert), Kollision mit vorhandenen Fenstern per <span class="mono">computeExistingWindowSpans</span> ausgeschlossen.</p></div>
+      </details>
+      <details>
+        <summary><span class="num">05</span><span class="tt">BalconyGenerator (5a/5c)</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Zweiphasig um Schritt 5b herum: Phase 1 platziert den führenden <span class="mono">Ga</span>-Lauf pro Wand unabhängig (<span class="mono">HDistWaGa</span>-Anker), reserviert die belegte Wandspanne. Phase 2 platziert restliche <span class="mono">Ga</span>-Token eines Musters (z. B. <span class="mono">"GaWiWiGa"</span>) nach den echten Fenstern (<span class="mono">HDistWiGa</span>-Anker). Deck+Brüstung als <span class="mono">BuildingInstallation</span> (<span class="mono">STRUKTUR=Balkondecke</span>/<span class="mono">Balkonbruestung</span>), nicht als Roof-/WallSurface — schema-konform ohne <span class="mono">boundedBy</span>-Ausschluss-Hack. Balkon-Normalen aus der wand-eigenen Umlaufrichtung abgeleitet (nicht aus einer globalen Schwerpunkt-Heuristik — die versagt bei nicht-konvexen Grundrissen/Innenhöfen).</p></div>
+      </details>
+      <details>
+        <summary><span class="num">06</span><span class="tt">WindowGenerator (5b)</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Fenster auf Geschoss-Außenwänden (TIC-Methode), max. 1 Reihe pro Wand und Geschoss. Enthält u. a. <span class="mono">openingInsideWallTopClearance2D</span>/<span class="mono">openingInsideWallSideTopClearance2D</span> (2 cm Sicherheitsabstand oben bzw. an beiden Seitenkanten — Ray-Casting ist an Randpunkten mehrdeutig) und <span class="mono">wallContourEntersOpening</span> (erkennt eine „M“-förmige Wandkontur, die mitten in eine sonst gültige Öffnung hineinragt).</p></div>
+      </details>
+      <details>
+        <summary><span class="num">07</span><span class="tt">RoofWindowGenerator (5d)</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Eigenständiger Generator (nicht in <span class="mono">WindowGenerator</span> integriert — fundamental andere Geometrie: geneigte statt senkrechte Fläche). Nutzt dieselbe <span class="mono">WindowParams</span>-Struktur wie Wandfenster (<span class="mono">RO.window</span>-Block). Kernentscheidung: die Wand-Konvention „u = entlang Unterkante, v = Z“ wird auf „u = entlang Traufe, v = entlang der Dachschräge (Traufe→First)“ generalisiert (<span class="mono">computeUpSlopeVector</span>, <span class="mono">projectPlaneTo2D</span> statt <span class="mono">projectWallTo2D</span>).</p></div>
+      </details>
+      <details>
+        <summary><span class="num">08</span><span class="tt">conformJunctions (Toleranz 5 mm)</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>An T-Stößen (eine Wand endet mitten auf der Kante einer anderen) fehlt dem längeren Nachbarn der Zwischenpunkt, die Hülle schließt formal nicht. Fügt den fehlenden Vertex <strong>auf</strong> die bestehende Kante ein (liegt exakt auf der Geraden → keine Formänderung). Näht ausschließlich die eigenen, unabhängig erzeugten Zusatzflächen zusammen (Geschosse/Keller/Slabs) — die Quellgeometrie selbst (mm-Nähte, Planarität) bleibt bewusst unverändert, das ist Aufgabe des nachgelagerten Healers. Enthält ein eng begrenztes Vertex-Welding (bis 2 mm) vor der Einfügung, um zwei unabhängig digitalisierte, nur mm-genau abweichende Eckpunkte zu verschmelzen.</p></div>
+      </details>
+      <details>
+        <summary><span class="num">09</span><span class="tt">splitSelfTouchingRings</span><span class="arrow">▸</span></summary>
+        <div class="body"><p>Spaltet Ringe, die durch Schritt 08 an einer Stelle einen „Pinch Point“ (denselben 3D-Punkt an zwei nicht benachbarten Stellen) bekommen haben, in zwei einfache Teilringe auf. Sicherheitsnetz: committet nur, wenn alle resultierenden Teilstücke sauber sind (<span class="mono">ringSelfIntersects</span>-Check) — sonst bleibt das Original unverändert. Grenzfall „Spike“ (Weg geht zu einem Punkt raus und exakt zurück) lässt sich damit strukturell nicht lösen, siehe „Bekannte offene Punkte“ unten.</p></div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <h2>Algorithmen-Referenz</h2>
+    <ul>
+      <li><strong>Sutherland-Hodgman</strong> (<span class="mono">cutWallPolygonAtZ</span>): klassischer Polygon-Clip an einer horizontalen Ebene. Sicherheitsmerkmale: 5 cm Fitzelchen-Toleranz (kein Schnitt zu nah an einer Kante), 1 mm Klassifikations-Epsilon, mm-Rundung der Schnittpunkte.</li>
+      <li><strong>Newell's Method</strong> (<span class="mono">calculateWallArea</span>): Flächenberechnung eines beliebigen planaren 3D-Polygons über die Kreuzprodukt-Summe aller Kantenpaare (<span class="mono">N = Σ P_i × P_{i+1}</span>, <span class="mono">A = 0,5·|N|</span>) — funktioniert für beliebige Punktzahl, nicht nur Rechtecke.</li>
+      <li><strong>Wandnormale-Azimut</strong> (<span class="mono">calculateWallNormalAzimuthFromPolygon</span>): dreistufig — (1) Senkrechte auf die Unterkante (zwei Punkte bei minZ), (2) Fallback: längste horizontale Kante, (3) letzter Fallback: erste Kante.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>TerrainIntersectionCurve (TIC)</h2>
+    <p>Nach Kolbe (2009): Interface-Objekt zwischen 3D-Gebäudemodell und Geländemodell, dokumentiert wo ein Gebäude das Gelände schneidet. Zwei Erzeugungsvarianten:</p>
+    <ul>
+      <li><strong>Flach</strong> (kein DGM): <span class="mono">Z = H_DGM</span> für jeden TIC-Vertex.</li>
+      <li><strong>Interpoliert</strong> (mit DGM): <span class="mono">Z = DGM(x,y)</span>, bilinear aus den 4 umgebenden Rasterzellen.</li>
+    </ul>
+    <p><strong>Validierung gegen offizielle Dresden-TICs</strong> (Geoportal Dresden, 1.720 gematchte Gebäude): mittlere Differenz <strong>−0,001 m</strong>, 90,8 % innerhalb ±0,5 m. Abweichungen v. a. durch Vertex-Dichte (Dresden Ø 52 Vertices/TIC auf 1m-Raster verdichtet, wir Ø 14 — die originalen Eckpunkte).</p>
+    <div class="cmd"><div class="cmdlbl">Bilineare Interpolation (DgmReader / GeoTiffReader)</div><pre>col = (x - xllcorner) / cellsize - 0.5,  row = (nrows-1) - (y - yllcorner) / cellsize + 0.5
+c0/r0 = floor(col/row), c1/r1 = c0/r0 + 1, fx/fy = Nachkommaanteil
+Z = (1-fx)(1-fy)·Z[r0,c0] + fx(1-fy)·Z[r0,c1] + (1-fx)fy·Z[r1,c0] + fx·fy·Z[r1,c1]</pre></div>
+    <p>GeoTIFF-Reader (<span class="mono">javax.imageio</span>, keine externen Abhängigkeiten) wertet <span class="mono">ModelPixelScaleTag</span> (33550), <span class="mono">ModelTiepointTag</span> (33922), <span class="mono">ModelTransformationTag</span> (34264), <span class="mono">GDAL_NODATA</span> (42113) aus. Robustheit: NODATA-Zellen → nächster gültiger Nachbar; Rasterrand → Nearest-Neighbor statt bilinear; <span class="mono">float[][]</span> statt <span class="mono">double[][]</span> (Speicher: ~16 MB/Tile bei 2000×2000).</p>
+    <ul class="refs">
+      <li>Kolbe, T.H. (2009) — Representing and Exchanging 3D City Models with CityGML</li>
+      <li>Kolbe &amp; Czerwinski (2006)</li>
+      <li>OGC 20-010 — CityGML 3.0 Conceptual Model</li>
+      <li>Gröger &amp; Plümer (2012)</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Technische Details</h2>
+    <div class="tree"><span class="f">AbstractCityObject</span>
+<span class="cm">├─</span> <span class="f">AbstractSpace</span> (Building, BuildingPart, ...)     <span class="cm">getSolid(lod) / getMultiSurface(lod) / getMultiCurve(lod)</span>
+<span class="cm">└─</span> <span class="f">AbstractSpaceBoundary</span>
+   <span class="cm">└─</span> <span class="f">AbstractThematicSurface</span> (WallSurface, RoofSurface, ...)  <span class="cm">getMultiSurface(lod)</span></div>
+    <p style="margin-top:14px;"><strong>CityGML-Version:</strong> liest/schreibt CityGML 1.0. Kein natives <span class="mono">BuildingStorey</span>-Element in 1.0 — Geschosse werden als <span class="mono">FloorSurface</span>/<span class="mono">CeilingSurface</span> mit <span class="mono">Geschoss</span>-Attribut abgebildet, IDs nach Muster <span class="mono">{buildingId}_storey{level}_floor_{polygonIndex}</span>.</p>
+  </section>
+
+  <section>
+    <h2>GUI-Anwendung</h2>
+    <p class="sec-note"><span class="mono">de.mpsc.lod2tolod3.gui.Lod2Lod3Gui</span> — eigenständige Desktop-Oberfläche für Nutzende ohne CMD/PowerShell (siehe <em>Administrierende</em>). Zusätzliche Main-Class im selben Fat-JAR, keine eigene Kopie der Pipeline-Logik.</p>
+    <h3>Verwendete Bibliotheken</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Zweck</th><th>Bibliothek</th><th>Warum</th></tr></thead>
+      <tbody>
+        <tr><td>UI-Toolkit</td><td class="k">Swing</td><td>JDK-Bestandteil, kein Zusatz-Download, läuft mit der eingebetteten Laufzeit</td></tr>
+        <tr><td>Look-and-Feel</td><td class="k">FlatLaf 3.7.2</td><td>Modernes, flaches Erscheinungsbild statt Standard-Swing-„Metal“; Hell/Dunkel per Button umschaltbar (nicht ans Windows-Theme gekoppelt — bräuchte zusätzlich eine Registry-Abfrage)</td></tr>
+        <tr><td>Paketierung</td><td class="k">jpackage</td><td>JDK-Bestandteil (seit 14) — baut aus dem Fat-JAR eine eigenständige <span class="mono">.exe</span> samt Laufzeit, <span class="mono">--type app-image</span>, kein Installer/WiX nötig</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Architektur-Prinzip: dünne UI-Schicht, keine Logik-Duplikation</h3>
+    <p>Die GUI ruft <span class="mono">Lod2ToLod3Pipeline.run(String[] args, StepSelection selection)</span> direkt auf — denselben Code-Pfad, den auch <span class="mono">main()</span> (CLI) nutzt. Verifiziert per Diff: CLI-Aufruf und GUI-Aufruf erzeugen auf einer realen 3.801-Gebäude-Kachel bytegleiche Ausgabe (einzige Abweichung: die eingebetteten Verarbeitungs-Zeitstempel). <span class="mono">run()</span> wirft Exceptions statt <span class="mono">System.exit()</span> aufzurufen, damit die GUI einen Fehler in einem Dialog anzeigen kann, statt dass der ganze Prozess beendet wird — CLI-Verhalten bleibt unverändert.</p>
+
+    <h3>StepSelection: Schritte gefahrlos abwählbar machen</h3>
+    <p><span class="mono">StepSelection</span> ist ein <span class="mono">record</span> mit sechs booleschen Feldern, das steuert, welche Generator-Schritte der Pipeline hinzugefügt werden. Vor der Umsetzung wurde gezielt geprüft, ob das strukturell sicher ist:</p>
+    <ul>
+      <li><span class="mono">DoorGenerator</span>, <span class="mono">WindowGenerator</span> und <span class="mono">BalconyGenerator</span> wählen ihre Ziel-Wände über ein <span class="mono">Geschoss</span>-Attribut, das <strong>ausschließlich</strong> <span class="mono">StoreyGenerator</span> setzt. Ist „Geschosse“ abgewählt, liefert die Abfrage <span class="mono">null</span>, die Eligibility-Prüfung schlägt fehl, der Schritt erzeugt sauber 0 Elemente — kein Absturz, keine invalide Geometrie. Per Testlauf bestätigt (Fenster+Balkone abgewählt: 0 Fenster, 0 Balkone, alle anderen Zahlen exakt wie im Volllauf).</li>
+      <li><span class="mono">RoofWindowGenerator</span> liest kein <span class="mono">Geschoss</span>-Attribut (schreibt nur <span class="mono">"RO"</span> auf eigene erzeugte Fenster) — vollständig unabhängig von <span class="mono">StoreyGenerator</span>.</li>
+      <li><span class="mono">StoreyGenerator</span> selbst liest <span class="mono">H_DGM</span> direkt vom Building (nicht über <span class="mono">BasementGenerator</span>) und unterscheidet im Code explizit zwischen Basement-erzeugter und Original-GroundSurface — funktioniert also nachweislich unabhängig davon, ob Keller lief.</li>
+      <li>Balkone (Phase 1 vor Fenstern, Phase 2 danach) sind fest an eine gemeinsame Auswahl gekoppelt, nicht einzeln wählbar. Fallback-Türen sind an dieselbe Auswahl wie der normale Tür-Schritt gekoppelt — sonst würde bei „Türen abgewählt“ trotzdem automatisch eine Ersatztür eingefügt.</li>
+    </ul>
+    <p>Schritte 1 (Promotion) und 6+7 (Junction-Conforming/Pinch-Split) sind nicht Teil von <span class="mono">StepSelection</span> — sie sind strukturell zwingend.</p>
+
+    <div class="callout"><div class="ctitle">GUI-seitige Absicherung</div><p>Obwohl die Pipeline „Geschosse aus, Fenster an“ bereits gefahrlos abfängt (0 Fenster statt Fehler), verhindert die GUI diese Kombination zusätzlich direkt in der Oberfläche: ein <span class="mono">ActionListener</span> auf der Geschosse-Checkbox (<span class="mono">onStoreysToggled()</span>) hakt Türen/Fenster/Balkone automatisch ab und sperrt sie (<span class="mono">setEnabled(false)</span>), sobald Geschosse abgewählt wird, und stellt beim erneuten Anhaken den vorherigen Auswahlzustand wieder her. Grund: eine still auf 0 laufende, aber weiterhin angehakte Checkbox wäre in der Praxis ein Footgun (z. B. ein langer Batch-Lauf, der am Ende ohne ein einziges Fenster fertig ist, obwohl „Fenster“ angehakt war). Keller und Dachfenster sind von dieser Sperre nicht betroffen.</p></div>
+
+    <h3>Fortschritts-Hook und Log-Anzeige</h3>
+    <p><span class="mono">ProgressListener</span> (statisch, <span class="mono">null</span> im CLI-Betrieb = No-Op) meldet <span class="mono">onFileStart(fileIndex, totalFiles, filename)</span> im Batch-Modus (echte Werte) und <span class="mono">onBuilding(count)</span> nach jedem verarbeiteten Gebäude. Für einen echten X/Y-Balken im Einzeldatei-Modus zählt die GUI vorab die <span class="mono">&lt;core:cityObjectMember&gt;</span>-Zeilen der Eingabedatei (reines Zeilenlesen, kein XML-Parsing, daher schnell auch bei großen Kacheln). <span class="mono">System.out</span>/<span class="mono">System.err</span> werden beim GUI-Start (vor jedem Pipeline-Zugriff, da SLF4J-Simple den Ziel-Stream beim ersten <span class="mono">getLogger()</span>-Aufruf fest bindet) durch einen zeilenweise puffernden Stream ersetzt, der jede Zeile zusätzlich an die Swing-Textfläche weiterreicht — ohne den ursprünglichen Stream zu ersetzen.</p>
+  </section>
+
+  <section>
+    <h2>Bekannte offene Punkte</h2>
+    <p class="sec-note">Diese Liste enthält bewusst nur noch nicht vollständig gelöste oder strukturell akzeptierte Fälle — abgeschlossene Bugfixes sind über die Git-Historie nachvollziehbar, nicht hier dupliziert.</p>
+    <ul>
+      <li><span class="chip open">offen</span> <strong>GE_R_SELF_INTERSECTION „Spike“-Fälle:</strong> eine Kachel-Kantenhöhe liegt gelegentlich 1–9 mm von einem originalen Wand-Stufen-Vertex entfernt; die 5-mm-T-Naht-Suche (Schritt 08) findet dann einen bereits im selben Ring vorhandenen Punkt erneut und erzeugt einen „Spike“ (A→B→C→B). Schritt 09 löst echte zweiseitige Pinch-Points, kann aber Spikes strukturell nicht auflösen (beide Hälften würden auf &lt;3 Punkte entarten). Betrifft eine kleine, im Detail bekannte Menge an Gebäuden.</li>
+      <li><span class="chip open">offen</span> <strong>GE_S_NON_MANIFOLD_EDGE/GE_S_NOT_CLOSED bei ~66 Gebäuden:</strong> offene Kanten auf einem Z-Niveau, das nicht der Keller-/EG-Grenze entspricht (anders als der bereits behobene Keller-Überhang-Fall) — Ursache noch nicht diagnostiziert.</li>
+      <li><span class="chip open">offen</span> <strong>val3dity <span class="mono">601 BUILDINGPARTS_OVERLAP</span>:</strong> bei Mehrteil-Gebäuden (Standard-Muster: gemeinsame, xlink-referenzierte Party-Wall) meist ein CGAL-Nef-Erosions-Artefakt der Prüfkette (citygml-tools→CityJSON→val3dity), kein reales Volumen-Overlap — mechanistisch am val3dity-Quellcode verifiziert. <span class="mono">--overlap_tol</span> würde das sauber ausschließen, ist aber in der aktuellen val3dity-2.6.0b0-Windows-Beta auf großen Kacheln instabil (hängt/stürzt ab) — daher nur auf handhabbaren Teilmengen nutzbar. Die reine <span class="mono">601</span>-Zahl ist folglich kein verlässliches Qualitätsmaß für Mehrteil-Gebäude.</li>
+      <li><span class="chip open">offen</span> <strong>CityDoctor2 <span class="mono">SE_POLYGON_WITHOUT_SURFACE</span>:</strong> meldet fälschlich auf jedem Fenster-/Tür-/Balkon-Polygon — bestätigter Mapper-Bug im Tool (Öffnungsgeometrie wird beim Einlesen nie mit ihrer Wand verknüpft), auch am externen FZK-Haus-Referenzdatensatz reproduziert (14.207 Treffer). Schema-Validität ist davon unberührt.</li>
+      <li><span class="chip open">offen</span> <strong>BalconyGenerator — Parameter-Interpretationen ohne volle Spec-Bestätigung:</strong> einige <span class="mono">GA</span>-Block-Felder (<span class="mono">HDistWiGa</span>-Doppelrolle, <span class="mono">DistWiGa</span>, Zugangsöffnung als <span class="mono">DoorSurface</span> statt eigenem Element) sind aus wenigen realen Datenpunkten inferiert, nicht durch eine vollständige Spezifikation belegt — Geometrie-Validität ist davon unabhängig nachgewiesen. Details siehe Javadoc der Klasse.</li>
+    </ul>
+    <div class="gauges">
+      <div class="gauge">
+        <div class="gtop"><span class="gname">val3dity — valide Primitive</span><span class="gpct tnum">99,58 %</span></div>
+        <div class="gbar"><div class="gfill" style="width:99.58%"></div></div>
+        <div class="gsub">98,36 % valide Features · dominante Kategorie: 601 BUILDINGPARTS_OVERLAP</div>
+      </div>
+      <div class="gauge">
+        <div class="gtop"><span class="gname">CityDoctor2 — fehlerfreie Gebäude</span><span class="gpct tnum">92,24 %</span></div>
+        <div class="gbar"><div class="gfill" style="width:92.24%"></div></div>
+        <div class="gsub">Nutzer-Konfiguration · dominante Kategorie: GE_P_NON_PLANAR_POLYGON_DISTANCE_PLANE (größtenteils aus LoD2-Quelldaten geerbt)</div>
+      </div>
+    </div>
+    <p class="sec-note">Baseline: kompletter Dresden-Lauf, 98 Kacheln, 141.670 Gebäude, Stand 2026-09-02.</p>
+  </section>
+
+  <section>
+    <h2>Unit-Tests</h2>
+    <p><span class="mono">src/test/java/de/mpsc/lod2tolod3/util/</span> (spiegelt <span class="mono">src/main</span>-Paketstruktur). JUnit 5, von Maven Surefire automatisch erkannt. <span class="mono">mvn test</span> bzw. <span class="mono">mvn clean package</span> (Tests laufen automatisch mit). Alle Testklassen sind Regressionstests für konkret gefundene Fehler, keine abstrakte Coverage-Übung:</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Testklasse</th><th>Prüft</th></tr></thead>
+      <tbody>
+        <tr><td class="k">CityGmlUtilsWallCutTest</td><td><span class="mono">cutWallAtMultipleZJTS</span> — Kerben-Zerlegung, Flächenbilanz</td></tr>
+        <tr><td class="k">CityGmlUtilsPartyWallTest</td><td><span class="mono">computeCoveredSpans</span>/<span class="mono">overlapsAnySpan</span>/<span class="mono">isFullyCovered</span> — Party-Wand-Erkennung</td></tr>
+        <tr><td class="k">CityGmlUtilsBottomEdgeTest</td><td><span class="mono">findBottomEdge</span> — Punktepaar mit größtem 2D-Abstand bei geknickter Basis</td></tr>
+        <tr><td class="k">CityGmlUtilsOpeningClearanceTest</td><td><span class="mono">openingInsideWallTopClearance2D</span> — Fenster-Traufe-Clearance</td></tr>
+        <tr><td class="k">CityGmlUtilsSlabClipTest</td><td><span class="mono">clipSlabAtZ</span> — Anbau-Zuschnitt</td></tr>
+        <tr><td class="k">CityGmlUtilsRoofPlaneTest</td><td>Solid-Shell-Rebuild bei Dachflächen-FillingSurfaces</td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:.88rem; color:var(--ink-faint);">Ergänzt die manuelle Verifikationskette (Einzelgebäude → 14er-Set → volle Kachel → <span class="mono">citygml-tools validate</span> → val3dity/CityDoctor2), ersetzt sie nicht: Shell-Geschlossenheit und Koordinaten-Präzision zwischen benachbarten Flächen zeigen sich erst beim echten Kachel-Zusammenbau.</p>
+  </section>
+
+  <section>
+    <h2>Ideen &amp; Verbesserungspotenzial</h2>
+    <h3>CityGML-Versions-Upgrade</h3>
+    <p>Die Pipeline schreibt CityGML 1.0. citygml4j 3.2.7 nutzt intern ein CityGML-3.0-natives, versionsagnostisches Objektmodell — der Wechsel auf <span class="mono">CityGMLVersion.v2_0</span>/<span class="mono">v3_0</span> betrifft genau 2 Stellen (<span class="mono">CityGmlUtils.processGmlFile</span>, <span class="mono">Lod2ToLod3Pipeline</span>).</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Pfad</th><th>Aufwand</th><th>Mehrwert</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1.0 → 2.0</td><td>3 Zeilen</td><td><span class="mono">relativeToTerrain</span>/<span class="mono">relativeToWater</span> standardisiert (aktuell nur über Generic Attributes abbildbar), <span class="mono">OuterFloorSurface</span>/<span class="mono">OuterCeilingSurface</span> für Balkone — sonst kein funktionaler Mehrwert</td></tr>
+        <tr><td class="k">1.0 → 3.0 (minimal)</td><td>3 Zeilen</td><td>modernes Format; LoD4 entfällt (nicht genutzt), <span class="mono">Opening</span> → <span class="mono">FillingSurface</span>-Konzept (citygml4j mappt das beim 1.0-Export automatisch zurück)</td></tr>
+        <tr><td class="k">1.0 → 3.0 + Storey</td><td>1–2 Tage</td><td>echte Geschoss-Objekte (<span class="mono">Storey</span>, <span class="mono">sortKey</span>) statt <span class="mono">FloorSurface</span>/<span class="mono">CeilingSurface</span> + Generic-Attribut-Workaround</td></tr>
+        <tr><td class="k">1.0 → 3.0 + Storey + Elevation/storeyHeights*</td><td>2–3 Tage</td><td><span class="mono">H_DGM</span>/Geschosshöhen als standardisierte Properties statt Generic Attributes</td></tr>
+        <tr><td class="k">1.0 → 3.0 + Storey + BuildingRoom</td><td>4–6 Tage</td><td>Innenraum-Modellierung (nutzt bereits vorhandenen <span class="mono">IN</span>-JSON-Block)</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Empfehlung:</strong> direkt 1.0 → 3.0 (kein Umweg über 2.0). Abwärtskompatibel — CityGML-1.0-Input bleibt lesbar, nur die Ausgabe ändert sich.</p>
+  </section>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">LoD2 → LoD3 Konvertierungspipeline · Rohtext-Basis: Doku_Benutzende.md / Doku_Administrierende.md / Doku_Programmierende.md · Kurzeinstieg/CLI-Aufruf siehe README.md</div>
+</footer>
+
+<script>
+(function(){
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var panels = { benutzer: document.getElementById('p-benutzer'), admin: document.getElementById('p-admin'), dev: document.getElementById('p-dev') };
+  function select(name, push){
+    tabs.forEach(function(t){
+      var active = t.dataset.tab === name;
+      t.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    Object.keys(panels).forEach(function(k){ panels[k].hidden = (k !== name); });
+    try{ localStorage.setItem('lod3doku.tab', name); }catch(e){}
+    if(push){ history.replaceState(null, '', '#' + name); }
+  }
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){ select(t.dataset.tab, true); });
+  });
+  var start = (location.hash || '').replace('#','');
+  if(!panels[start]){
+    try{ start = localStorage.getItem('lod3doku.tab') || 'benutzer'; }catch(e){ start = 'benutzer'; }
+  }
+  if(!panels[start]) start = 'benutzer';
+  select(start, false);
+
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var text = btn.getAttribute('data-copy') || '';
+      function done(){ btn.classList.add('done'); btn.textContent='Kopiert'; setTimeout(function(){btn.classList.remove('done'); btn.textContent='Kopieren';},1400); }
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(done).catch(function(){});
+        }
+      }catch(e){}
+    });
+  });
+})();
+</script>

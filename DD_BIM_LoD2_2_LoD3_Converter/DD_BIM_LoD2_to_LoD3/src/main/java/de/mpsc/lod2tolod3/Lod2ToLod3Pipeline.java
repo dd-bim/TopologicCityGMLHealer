@@ -75,41 +75,86 @@ public class Lod2ToLod3Pipeline {
 
     public static void main(String[] args) {
         try {
-            Path workspaceRoot = Paths.get("").toAbsolutePath();
-            Path inputPath = args.length >= 1 ? Paths.get(args[0]) : workspaceRoot.resolve(DEFAULT_INPUT);
-            Path jsonDir = args.length >= 2 ? Paths.get(args[1]) : workspaceRoot.resolve(DEFAULT_JSON);
-            Path outputArg = args.length >= 3 ? Paths.get(args[2]) : workspaceRoot.resolve(DEFAULT_OUTPUT);
-            Path dgmPath = args.length >= 4 ? Paths.get(args[3]) : null;
-
-            DgmProvider dgm = loadDgm(dgmPath);
-
-            if (Files.isDirectory(inputPath)) {
-                runBatch(inputPath, jsonDir, outputArg, dgm);
-            } else {
-                Files.createDirectories(outputArg);
-                Path outputFile = outputArg.resolve(lod3FileName(inputPath.getFileName().toString()));
-                log.info("============================================================");
-                log.info("  LoD2 -> LoD3 Konvertierungs-Pipeline (Single-Pass)      ");
-                log.info("============================================================");
-                log.info("Input:  {}", inputPath);
-                log.info("JSON:   {}", jsonDir);
-                log.info("Output: {}", outputFile);
-                log.info("DGM:    {}", dgm != null ? dgmPath : "(kein DGM — flache TIC)");
-
-                TileResult r = processSingleFile(inputPath, outputFile, jsonDir, dgm);
-                logTileSummary(r, "                  Pipeline abgeschlossen                    ", outputFile);
-            }
+            run(args, StepSelection.all());
         } catch (Exception e) {
             log.error("Fehler in der Pipeline: {}", e.getMessage(), e);
             System.exit(1);
         }
     }
 
+    /**
+     * Führt die Pipeline programmatisch aus (kein {@code System.exit}) — Einstiegspunkt für die
+     * GUI ({@link de.mpsc.lod2tolod3.gui.Lod2Lod3Gui}). Verhalten mit {@link StepSelection#all()}
+     * identisch zu {@link #main(String[])}.
+     */
+    public static void run(String[] args, StepSelection selection) throws Exception {
+        Path workspaceRoot = Paths.get("").toAbsolutePath();
+        Path inputPath = args.length >= 1 ? Paths.get(args[0]) : workspaceRoot.resolve(DEFAULT_INPUT);
+        Path jsonDir = args.length >= 2 ? Paths.get(args[1]) : workspaceRoot.resolve(DEFAULT_JSON);
+        Path outputArg = args.length >= 3 ? Paths.get(args[2]) : workspaceRoot.resolve(DEFAULT_OUTPUT);
+        Path dgmPath = args.length >= 4 ? Paths.get(args[3]) : null;
+
+        DgmProvider dgm = loadDgm(dgmPath);
+
+        if (Files.isDirectory(inputPath)) {
+            runBatch(inputPath, jsonDir, outputArg, dgm, selection);
+        } else {
+            Files.createDirectories(outputArg);
+            Path outputFile = outputArg.resolve(lod3FileName(inputPath.getFileName().toString()));
+            log.info("============================================================");
+            log.info("  LoD2 -> LoD3 Konvertierungs-Pipeline (Single-Pass)      ");
+            log.info("============================================================");
+            log.info("Input:  {}", inputPath);
+            log.info("JSON:   {}", jsonDir);
+            log.info("Output: {}", outputFile);
+            log.info("DGM:    {}", dgm != null ? dgmPath : "(kein DGM — flache TIC)");
+
+            TileResult r = processSingleFile(inputPath, outputFile, jsonDir, dgm, selection);
+            logTileSummary(r, "                  Pipeline abgeschlossen                    ", outputFile);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Schritt-Auswahl (optional, fuer die GUI) — Standard-CLI-Aufruf entspricht
+    // immer StepSelection.all(); Schritte 1 (Promotion) und 6+7 (Junction-
+    // Conforming/Pinch-Split) sind strukturell zwingend und nicht abwaehlbar.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public record StepSelection(
+            boolean basement, boolean storeys, boolean doors,
+            boolean windows, boolean balconies, boolean roofWindows) {
+
+        public static StepSelection all() {
+            return new StepSelection(true, true, true, true, true, true);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fortschritts-Hook (optional, fuer die GUI) — im CLI-Betrieb bleibt der
+    // Listener null und die Aufrufe sind No-Ops.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public interface ProgressListener {
+        /** Wird bei Batch-Modi vor jeder Datei aufgerufen. */
+        default void onFileStart(int fileIndex, int totalFiles, String filename) {}
+        /** Wird nach jedem verarbeiteten Gebaeude aufgerufen (fuer eine Live-Zaehlung). */
+        default void onBuilding(int buildingsProcessed) {}
+    }
+
+    private static volatile ProgressListener progressListener;
+
+    /** Muss vor {@link #run(String[], StepSelection)} gesetzt werden; {@code null} deaktiviert
+     *  den Hook wieder. */
+    public static void setProgressListener(ProgressListener listener) {
+        progressListener = listener;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Batch-Modus: ganzer Ordner
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static void runBatch(Path inputFolder, Path jsonDir, Path outputParent, DgmProvider dgm)
+    private static void runBatch(
+            Path inputFolder, Path jsonDir, Path outputParent, DgmProvider dgm, StepSelection selection)
             throws IOException {
         List<Path> gmlFiles;
         try (var stream = Files.list(inputFolder)) {
@@ -145,8 +190,11 @@ public class Lod2ToLod3Pipeline {
             Path outputFile = outputFolder.resolve(lod3FileName(inputFile.getFileName().toString()));
             String progress = String.format("[%d/%d]", i + 1, gmlFiles.size());
             log.info("{} Verarbeite {} ...", progress, inputFile.getFileName());
+            if (progressListener != null) {
+                progressListener.onFileStart(i + 1, gmlFiles.size(), inputFile.getFileName().toString());
+            }
             try {
-                TileResult r = processSingleFile(inputFile, outputFile, jsonDir, dgm);
+                TileResult r = processSingleFile(inputFile, outputFile, jsonDir, dgm, selection);
                 results.add(r);
                 log.info("{} fertig: {} Gebaeude, {}.{} s -> {}",
                         progress, r.promStats.buildingsProcessed,
@@ -265,7 +313,8 @@ public class Lod2ToLod3Pipeline {
 
     /** Verarbeitet genau eine GML-Datei durch die komplette Pipeline (alle Schritte 1–7). */
     private static TileResult processSingleFile(
-            Path inputFile, Path outputFile, Path jsonDir, DgmProvider dgm) throws Exception {
+            Path inputFile, Path outputFile, Path jsonDir, DgmProvider dgm, StepSelection selection)
+            throws Exception {
 
         // Verarbeitungs-Komponenten initialisieren — bewusst PRO DATEI neu, nicht ueber Kacheln
         // hinweg geteilt: ModuleParametersLoader cached intern in einer einfachen (nicht
@@ -295,22 +344,57 @@ public class Lod2ToLod3Pipeline {
         var balconyStats = result.balconyStats;
         var roofWindowStats = result.roofWindowStats;
 
-        // Generator-Schritte registrieren (Schritte 2–5c). Balkone laufen zweiphasig um
-        // Fenster herum: Phase 1 platziert den fuehrenden Ga-Lauf unabhaengig VOR den
-        // Fenstern (reserviert deren Wandspanne), Phase 2 platziert restliche Ga-Token
-        // eines Musters NACH den Fenstern gegen die dann echten Fensterpositionen (siehe
-        // BalconyGenerator-Javadoc und Doku.md, Abschnitt "Schritt 6: Balkon-Generator").
+        // Generator-Schritte registrieren (Schritte 2–5c), je nach StepSelection. Balkone
+        // laufen zweiphasig um Fenster herum: Phase 1 platziert den fuehrenden Ga-Lauf
+        // unabhaengig VOR den Fenstern (reserviert deren Wandspanne), Phase 2 platziert
+        // restliche Ga-Token eines Musters NACH den Fenstern gegen die dann echten
+        // Fensterpositionen (siehe BalconyGenerator-Javadoc und Doku.md, Abschnitt
+        // "Schritt 6: Balkon-Generator") — beide Phasen sind daher fest an dieselbe
+        // StepSelection.balconies()-Auswahl gekoppelt, nicht einzeln abwaehlbar. Ebenso sind
+        // Fallback-Tueren an StepSelection.doors() gekoppelt: sie ergaenzen fehlende Tueren
+        // NACH Fenstern/Dachfenstern (siehe Klassen-Javadoc) — bei abgewaehlten Tueren waere es
+        // widerspruechlich, trotzdem ueberall automatisch eine Tuer nachzuschieben.
+        //
+        // WICHTIG (siehe Doku_Administrierende.md, Abschnitt GUI): Tueren/Fenster/Balkone lesen
+        // das "Geschoss"-Attribut, das NUR StoreyGenerator auf den Waenden setzt. Ist Geschosse
+        // abgewaehlt, findet keiner dieser Schritte ein passendes Geschoss und erzeugt
+        // deshalb sauber NICHTS (kein Crash, keine kaputte Geometrie) — bleibt aber trotzdem in
+        // der Liste, falls die Aufrufer-Doku das ausdruecklich so erwartet (z.B. Statistik-Logging
+        // soll weiterhin 0 statt "uebersprungen" zeigen).
         record PipelineStep(String label, Consumer<Building> action) {}
-        List<PipelineStep> buildingSteps = List.of(
-            new PipelineStep("Keller",         b -> { basementStats.buildingsProcessed++; basementGen.processBuilding(b, paramLoader, basementStats); }),
-            new PipelineStep("Geschosse",      b -> { storeyStats.buildingsProcessed++;   storeyGen.processBuilding(b, paramLoader, storeyStats); }),
-            new PipelineStep("Tueren",         b -> { doorStats.buildingsProcessed++;     doorGen.processBuilding(b, paramLoader, doorStats); }),
-            new PipelineStep("Balkone-Phase1", b -> { balconyStats.buildingsProcessed++;  balconyGen.processBuildingLeading(b, paramLoader, balconyStats); }),
-            new PipelineStep("Fenster",        b -> { windowStats.buildingsProcessed++;   windowGen.processBuilding(b, paramLoader, windowStats); }),
-            new PipelineStep("Balkone-Phase2", b -> { balconyGen.processBuildingRemaining(b, paramLoader, balconyStats); }),
-            new PipelineStep("Dachfenster",    b -> { roofWindowStats.buildingsProcessed++; roofWindowGen.processBuilding(b, paramLoader, roofWindowStats); }),
-            new PipelineStep("Fallback-Tueren", b -> doorGen.processFallbackDoors(b, paramLoader, doorStats))
-        );
+        List<PipelineStep> buildingSteps = new ArrayList<>();
+        if (selection.basement()) {
+            buildingSteps.add(new PipelineStep("Keller",
+                    b -> { basementStats.buildingsProcessed++; basementGen.processBuilding(b, paramLoader, basementStats); }));
+        }
+        if (selection.storeys()) {
+            buildingSteps.add(new PipelineStep("Geschosse",
+                    b -> { storeyStats.buildingsProcessed++; storeyGen.processBuilding(b, paramLoader, storeyStats); }));
+        }
+        if (selection.doors()) {
+            buildingSteps.add(new PipelineStep("Tueren",
+                    b -> { doorStats.buildingsProcessed++; doorGen.processBuilding(b, paramLoader, doorStats); }));
+        }
+        if (selection.balconies()) {
+            buildingSteps.add(new PipelineStep("Balkone-Phase1",
+                    b -> { balconyStats.buildingsProcessed++; balconyGen.processBuildingLeading(b, paramLoader, balconyStats); }));
+        }
+        if (selection.windows()) {
+            buildingSteps.add(new PipelineStep("Fenster",
+                    b -> { windowStats.buildingsProcessed++; windowGen.processBuilding(b, paramLoader, windowStats); }));
+        }
+        if (selection.balconies()) {
+            buildingSteps.add(new PipelineStep("Balkone-Phase2",
+                    b -> balconyGen.processBuildingRemaining(b, paramLoader, balconyStats)));
+        }
+        if (selection.roofWindows()) {
+            buildingSteps.add(new PipelineStep("Dachfenster",
+                    b -> { roofWindowStats.buildingsProcessed++; roofWindowGen.processBuilding(b, paramLoader, roofWindowStats); }));
+        }
+        if (selection.doors()) {
+            buildingSteps.add(new PipelineStep("Fallback-Tueren",
+                    b -> doorGen.processFallbackDoors(b, paramLoader, doorStats)));
+        }
 
         // ==================== Single-Pass Verarbeitung ====================
         // Lese-/Schreib-Zyklus (Header-Envelope, Chunk-Reader/-Writer) kommt aus der
@@ -350,6 +434,10 @@ public class Lod2ToLod3Pipeline {
             // statt (wie mehrfach versucht) die Einfuegung wegzulassen. Siehe Doku.md
             // "T-Naht-Splitter" und JunctionConformingUtils.splitSelfTouchingRings-Javadoc.
             result.pinchSplits += JunctionConformingUtils.splitSelfTouchingRings(building);
+
+            if (progressListener != null) {
+                progressListener.onBuilding(promStats.buildingsProcessed);
+            }
         });
 
         result.elapsedMs = System.currentTimeMillis() - startTime;
