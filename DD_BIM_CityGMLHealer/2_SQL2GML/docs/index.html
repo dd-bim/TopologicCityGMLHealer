@@ -1,0 +1,678 @@
+<title>sql2gml</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#F4F5EF; --surface:#FCFCF9; --surface-2:#ECEEE3;
+    --ink:#1C231F; --ink-soft:#57625B; --ink-faint:#8A9389;
+    --line:#DCE0D3; --line-strong:#C4CAB8;
+    --accent:#BE5326; --accent-ink:#FFF6F0;
+    --data:#3A6B64; --data-ink:#F0F7F5;
+    --open:#8A6A22; --open-bg:#F4EBD6;
+    --ok-bg:#E4EFEA;
+    --shadow:0 1px 2px rgba(28,35,31,.05), 0 6px 20px rgba(28,35,31,.06);
+    --font-d:'Archivo',system-ui,'Segoe UI',sans-serif;
+    --font-b:'Public Sans',system-ui,'Segoe UI',sans-serif;
+    --font-m:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#12160F; --surface:#191F17; --surface-2:#212820;
+      --ink:#E9ECE2; --ink-soft:#A3AC9C; --ink-faint:#748076;
+      --line:#2B3327; --line-strong:#3A4335;
+      --accent:#E58A5C; --accent-ink:#241005;
+      --data:#7FBBAF; --data-ink:#0B1A17;
+      --open:#D8AE5C; --open-bg:#2C2716;
+      --ok-bg:#182620;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#12160F; --surface:#191F17; --surface-2:#212820;
+    --ink:#E9ECE2; --ink-soft:#A3AC9C; --ink-faint:#748076;
+    --line:#2B3327; --line-strong:#3A4335;
+    --accent:#E58A5C; --accent-ink:#241005;
+    --data:#7FBBAF; --data-ink:#0B1A17;
+    --open:#D8AE5C; --open-bg:#2C2716;
+    --ok-bg:#182620;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--font-b); font-size:16px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,h4{font-family:var(--font-d); text-wrap:balance; margin:0; color:var(--ink); font-weight:700;}
+  p{margin:0 0 .9em;}
+  a{color:var(--accent);}
+  a:hover{text-decoration-thickness:2px;}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  ::selection{background:var(--accent); color:var(--accent-ink);}
+  .mono{font-family:var(--font-m);}
+  .tnum{font-variant-numeric:tabular-nums;}
+  .eyebrow{
+    font-family:var(--font-m); font-size:.72rem; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--ink-faint); font-weight:500;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:0 clamp(16px,3vw,40px);}
+
+  /* ===== Title block ===== */
+  header.tb{border-bottom:1px solid var(--line-strong); background:var(--surface);}
+  .tb-top{padding:28px 0 20px;}
+  .tb-kicker{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
+  .tb-kicker .sq{width:11px; height:11px; border:1.6px solid var(--accent); flex:none;}
+  h1.tb-title{font-size:clamp(1.7rem,3.4vw,2.5rem); letter-spacing:-.01em;}
+  .tb-title small{display:block; font-family:var(--font-b); font-weight:500; font-size:1rem; color:var(--ink-soft); margin-top:6px; max-width:62ch;}
+  .tb-grid{display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--line-strong); border-top:none;}
+  .tb-cell{padding:11px 16px; border-left:1px solid var(--line-strong);}
+  .tb-cell:first-child{border-left:none;}
+  .tb-cell .lbl{font-family:var(--font-m); font-size:.65rem; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-faint); display:block; margin-bottom:3px;}
+  .tb-cell .val{font-family:var(--font-m); font-size:.84rem; color:var(--ink); font-weight:500;}
+  .tb-cell .val b{color:var(--data);}
+  @media(max-width:760px){.tb-grid{grid-template-columns:1fr 1fr;} .tb-cell:nth-child(3){border-left:none;}}
+  @media(max-width:460px){.tb-grid{grid-template-columns:1fr;} .tb-cell{border-left:none; border-top:1px solid var(--line-strong);} .tb-cell:first-child{border-top:none;}}
+
+  /* ===== Tabs ===== */
+  nav.tabs{position:sticky; top:0; z-index:30; background:var(--paper); border-bottom:1px solid var(--line-strong); backdrop-filter:blur(6px);}
+  .tabs-row{display:flex; gap:2px;}
+  .tab{appearance:none; background:none; border:none; cursor:pointer; font-family:var(--font-d); padding:14px 20px 12px; font-size:.95rem; font-weight:700; color:var(--ink-soft); border-bottom:3px solid transparent; display:flex; flex-direction:column; gap:2px; text-align:left;}
+  .tab .sub{font-family:var(--font-b); font-weight:500; font-size:.72rem; color:var(--ink-faint); letter-spacing:.01em;}
+  .tab[aria-selected="true"]{color:var(--ink); border-bottom-color:var(--accent);}
+  .tab[aria-selected="true"] .sub{color:var(--accent);}
+  .tab:hover{color:var(--ink);}
+  @media(max-width:600px){.tab{padding:11px 12px 10px; font-size:.85rem;} .tab .sub{display:none;}}
+
+  /* ===== Panels ===== */
+  .panel{padding:40px 0 70px;}
+  .panel[hidden]{display:none;}
+  .lead{font-size:1.08rem; color:var(--ink-soft); margin-bottom:34px;}
+  section{margin-bottom:46px;}
+  section > h2{font-size:1.5rem; margin-bottom:4px;}
+  section > .sec-note{color:var(--ink-faint); font-size:.88rem; margin-bottom:18px; max-width:60ch;}
+  h3{font-size:1.08rem; margin:22px 0 8px;}
+  ul,ol{margin:0 0 1em; padding-left:1.3em;}
+  li{margin-bottom:.45em;}
+
+  /* ===== Feature card grid ===== */
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line-strong); border:1px solid var(--line-strong);}
+  .grid.g2{grid-template-columns:repeat(2,1fr);}
+  @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:480px){.grid{grid-template-columns:1fr;}}
+  .fcard{background:var(--surface); padding:18px 18px 16px;}
+  .fcard .ic{width:28px; height:28px; margin-bottom:10px; color:var(--accent);}
+  .fcard .ic svg{width:100%; height:100%;}
+  .fcard h4{font-size:.98rem; margin-bottom:5px;}
+  .fcard p{font-size:.88rem; color:var(--ink-soft); margin:0; max-width:none;}
+
+  /* ===== Sketch / diagram sheets ===== */
+  .sheet{position:relative; border:1px solid var(--line-strong); background:var(--surface); padding:26px 26px 20px; margin:22px 0; box-shadow:var(--shadow);}
+  .sheet::before,.sheet::after,.sheet .c3,.sheet .c4{content:""; position:absolute; width:14px; height:14px; border-color:var(--accent); opacity:.55;}
+  .sheet::before{top:-1px; left:-1px; border-top:2px solid; border-left:2px solid;}
+  .sheet::after{top:-1px; right:-1px; border-top:2px solid; border-right:2px solid;}
+  .sheet .c3{bottom:-1px; left:-1px; border-bottom:2px solid; border-left:2px solid;}
+  .sheet .c4{bottom:-1px; right:-1px; border-bottom:2px solid; border-right:2px solid;}
+  .sheet-cap{font-family:var(--font-m); font-size:.68rem; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:14px; display:flex; justify-content:space-between; gap:10px;}
+  .sheet svg{width:100%; height:auto; display:block;}
+  .sheet svg text{font-family:var(--font-m); fill:var(--ink-soft);}
+  .sheet svg text.lbl-strong{fill:var(--ink); font-weight:600;}
+
+  /* ===== Outcome cards ===== */
+  .outcomes{display:flex; gap:1px; background:var(--line-strong); border:1px solid var(--line-strong); margin:18px 0;}
+  .outcome{flex:1; background:var(--surface); padding:16px 18px;}
+  .outcome .otop{display:flex; align-items:center; gap:8px; margin-bottom:6px;}
+  .outcome .odot{width:10px; height:10px; border-radius:50%; flex:none;}
+  .outcome.yes .odot{background:var(--data);}
+  .outcome.no .odot{background:var(--open);}
+  .outcome h4{font-size:.92rem;}
+  .outcome p{font-size:.86rem; color:var(--ink-soft); margin:0;}
+  @media(max-width:640px){.outcomes{flex-direction:column;}}
+
+  /* ===== Callouts ===== */
+  .callout{border:1px solid var(--line-strong); border-left:3px solid var(--accent); background:var(--surface); padding:14px 18px; margin:18px 0; font-size:.92rem;}
+  .callout p:last-child{margin-bottom:0;}
+  .callout .ctitle{font-family:var(--font-d); font-weight:700; font-size:.85rem; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:4px;}
+
+  /* ===== Chips ===== */
+  .chip{display:inline-block; font-family:var(--font-m); font-size:.68rem; letter-spacing:.04em; text-transform:uppercase; padding:2px 7px; border:1px solid currentColor; font-weight:500;}
+  .chip.open{color:var(--open); background:var(--open-bg); border-color:var(--open);}
+  .chip.ok{color:var(--data); background:var(--ok-bg); border-color:var(--data);}
+
+  /* ===== Tables ===== */
+  .tbl-wrap{overflow-x:auto; border:1px solid var(--line-strong); margin:16px 0;}
+  table{border-collapse:collapse; width:100%; font-size:.87rem; min-width:420px;}
+  th,td{text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
+  thead th{font-family:var(--font-m); font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); background:var(--surface-2); border-bottom:1px solid var(--line-strong); font-weight:500;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--surface-2);}
+  td.k{font-family:var(--font-m); font-size:.83rem; color:var(--ink); white-space:nowrap;}
+
+  /* ===== Code blocks ===== */
+  .cmd{position:relative; background:var(--surface-2); border:1px solid var(--line-strong); margin:14px 0;}
+  .cmd .cmdlbl{font-family:var(--font-m); font-size:.66rem; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); padding:7px 12px 0;}
+  .cmd pre{margin:0; padding:6px 44px 12px 12px; overflow-x:auto; font-family:var(--font-m); font-size:.82rem; line-height:1.6; color:var(--ink); white-space:pre;}
+  .cmd .copy{position:absolute; top:6px; right:6px; background:var(--surface); border:1px solid var(--line-strong); color:var(--ink-soft); font-family:var(--font-m); font-size:.66rem; padding:4px 7px; cursor:pointer; letter-spacing:.03em;}
+  .cmd .copy:hover{color:var(--ink); border-color:var(--accent);}
+  .cmd .copy.done{color:var(--data); border-color:var(--data);}
+
+  /* ===== File tree ===== */
+  .tree{font-family:var(--font-m); font-size:.81rem; line-height:1.75; white-space:pre; overflow-x:auto; background:var(--surface); border:1px solid var(--line-strong); padding:16px 18px; color:var(--ink-soft);}
+  .tree .f{color:var(--ink);}
+  .tree .cm{color:var(--ink-faint);}
+
+  /* ===== Accordion (details) ===== */
+  .acc{border:1px solid var(--line-strong); border-top:none; margin:16px 0;}
+  .acc details{border-top:1px solid var(--line-strong);}
+  .acc summary{cursor:pointer; list-style:none; padding:12px 16px; display:flex; align-items:center; gap:12px; font-family:var(--font-d); font-weight:700; font-size:.92rem; background:var(--surface);}
+  .acc summary::-webkit-details-marker{display:none;}
+  .acc summary .num{font-family:var(--font-m); color:var(--accent); font-weight:600; font-size:.85rem; flex:none;}
+  .acc summary .tt{flex:1;}
+  .acc summary .arrow{color:var(--ink-faint); transition:transform .15s ease; flex:none;}
+  .acc details[open] summary .arrow{transform:rotate(90deg);}
+  .acc .body{padding:4px 16px 18px 16px; font-size:.92rem;}
+  .acc .body p:last-child{margin-bottom:0;}
+  @media (prefers-reduced-motion: reduce){.acc summary .arrow{transition:none;}}
+
+  /* ===== Flow (numbered chain) ===== */
+  .flow{position:relative; margin:20px 0; padding-left:34px;}
+  .flow::before{content:""; position:absolute; left:9px; top:8px; bottom:8px; width:1px; background:var(--line-strong);}
+  .fstep{position:relative; padding-bottom:20px;}
+  .fstep:last-child{padding-bottom:0;}
+  .fstep .dot{position:absolute; left:-34px; top:2px; width:19px; height:19px; border:1.6px solid var(--accent); background:var(--surface); color:var(--accent); font-family:var(--font-m); font-size:.66rem; font-weight:600; display:flex; align-items:center; justify-content:center;}
+  .fstep .dot.check{border-color:var(--data); color:var(--data);}
+  .fstep h4{font-size:.95rem; margin-bottom:2px;}
+  .fstep p{font-size:.86rem; color:var(--ink-soft); margin:0;}
+
+  .refs{font-size:.85rem; color:var(--ink-soft);}
+  .refs li{margin-bottom:.3em;}
+
+  footer{border-top:1px solid var(--line-strong); padding:26px 0 40px; color:var(--ink-faint); font-size:.82rem;}
+  footer a{color:var(--ink-soft);}
+
+  @media (prefers-reduced-motion: reduce){*{scroll-behavior:auto !important;}}
+</style>
+
+<header class="tb">
+  <div class="wrap tb-top">
+    <div class="tb-kicker"><span class="sq"></span><span class="eyebrow">Healer-DB → CityGML</span></div>
+    <h1 class="tb-title">sql2gml
+      <small>Schreibt vom Healer geprüfte und korrigierte Gebäudegeometrien aus einer SQLite-Datenbank zurück in die CityGML-Datei — pro Gebäude komplett oder gar nicht.</small>
+    </h1>
+  </div>
+  <div class="wrap" style="padding-bottom:0;">
+    <div class="tb-grid">
+      <div class="tb-cell"><span class="lbl">System</span><span class="val">CityGML 1.0 · citygml4j 3.2.7</span></div>
+      <div class="tb-cell"><span class="lbl">Haupt-Workflow</span><span class="val">HealedReplaceWorkflow</span></div>
+      <div class="tb-cell"><span class="lbl">DB-Schema</span><span class="val">SurfaceGeometries + PosLists</span></div>
+      <div class="tb-cell"><span class="lbl">Regel</span><span class="val">Valid-Gate — alles oder nichts</span></div>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Zielgruppe">
+  <div class="wrap tabs-row" role="tablist">
+    <button class="tab" role="tab" id="t-benutzer" aria-controls="p-benutzer" data-tab="benutzer">Benutzende<span class="sub">Was der Healer liefert, wie entschieden wird</span></button>
+    <button class="tab" role="tab" id="t-admin" aria-controls="p-admin" data-tab="admin">Administrierende<span class="sub">Installieren, ausführen, Hilfs-Tools</span></button>
+    <button class="tab" role="tab" id="t-dev" aria-controls="p-dev" data-tab="dev">Programmierende<span class="sub">Architektur, DB-Schema, Klassen</span></button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ============ BENUTZENDE ============ -->
+<section class="panel" id="p-benutzer" role="tabpanel" aria-labelledby="t-benutzer">
+  <p class="lead">Was <span class="mono">sql2gml</span> fachlich macht: was der Healer in der Datenbank zurückliefert und nach welchen Regeln daraus die CityGML-Datei aktualisiert wird. Für Aufruf/Konfiguration siehe <em>Administrierende</em>.</p>
+
+  <section>
+    <h2>Was macht sql2gml</h2>
+    <p>Der Healer prüft und korrigiert Gebäudegeometrien und legt das Ergebnis in einer SQLite-Datenbank ab. <span class="mono">sql2gml</span> liest diese Datenbank und schreibt die geprüften Geometrien zurück in die CityGML-Datei — pro Gebäude entweder <strong>komplett</strong> (Solid samt allen Flächen neu aufgebaut) oder <strong>gar nicht</strong> (Original unverändert). Ein Mittelweg — nur einzelne Flächen ersetzen, den Rest original lassen — wird bewusst vermieden.</p>
+  </section>
+
+  <section>
+    <h2>Was kommt vom Healer zurück</h2>
+    <p class="sec-note">Die Healer-Datenbank liefert eine hierarchische Struktur, die die gleiche Verschachtelung wie CityGML selbst hat.</p>
+    <div class="sheet">
+      <span class="c3"></span><span class="c4"></span>
+      <div class="sheet-cap"><span>Healer-DB · Hierarchie</span><span>konzeptionell</span></div>
+      <div class="tree">CityGmlFiles
+<span class="cm">└─</span> <span class="f">Buildings</span>          <span class="cm">ein Gebäude</span>
+   <span class="cm">└─</span> <span class="f">BuildingParts</span>   <span class="cm">seine Gebäudeteile (Anbauten etc.)</span>
+      <span class="cm">└─</span> <span class="f">Surfaces</span>      <span class="cm">seine Flächen (Wand/Dach/Grundfläche)</span>
+         <span class="cm">└─</span> <span class="f">Geometrie</span>   <span class="cm">Polygon ODER Dreiecksvermaschung (TIN)</span></div>
+    </div>
+    <p>Jede Ebene trägt zwei Dinge: ob sie <strong>valide</strong> ist (geprüft/korrigiert, verwendbar) und ein <strong>Log</strong>, das erklärt warum nicht, falls nicht.</p>
+    <div class="grid g2">
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="4,20 4,7 12,4 20,7 20,20"/></svg></div>
+        <h4>Polygon</h4><p>Der Normalfall — ein sauberer, ebener Umring (plus Löcher, falls vorhanden).</p></div>
+      <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="4,20 4,7 12,4 20,7 20,20"/><line x1="4" y1="20" x2="12" y2="10"/><line x1="12" y1="10" x2="20" y2="20"/><line x1="12" y1="4" x2="12" y2="10"/></svg></div>
+        <h4>TriangulatedSurface (TIN)</h4><p>Notlösung des Healers für Flächen, die er nicht eben bekommen konnte — in viele kleine Dreiecke zerlegt. Geometrisch korrekt, für Folgeschritte unpraktischer.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wie wir entscheiden, was wir übernehmen</h2>
+    <p class="sec-note">Valid-Gate: ein Gebäude wird nur ersetzt, wenn wirklich <strong>jede</strong> Ebene seiner gesamten Hierarchie valide ist.</p>
+    <div class="flow">
+      <div class="fstep"><div class="dot check">✓</div><h4>Gebäude valide?</h4><p>Grundvoraussetzung für alles Weitere</p></div>
+      <div class="fstep"><div class="dot check">✓</div><h4>Jeder Gebäudeteil valide?</h4><p>Auch Anbauten einzeln geprüft</p></div>
+      <div class="fstep"><div class="dot check">✓</div><h4>Jede Fläche valide?</h4><p>Wand, Dach, Grundfläche — jede einzeln</p></div>
+      <div class="fstep"><div class="dot check">✓</div><h4>Jede Geometrie + jeder Ring valide?</h4><p>Bis auf Koordinatenebene hinunter</p></div>
+      <div class="fstep"><div class="dot check">✓</div><h4>Solid-Merge-Gate besteht?</h4><p>Siehe eigener Abschnitt unten</p></div>
+    </div>
+    <div class="outcomes">
+      <div class="outcome yes"><div class="otop"><span class="odot"></span><h4>Alle Prüfungen bestanden</h4></div><p>Gebäude wird komplett ersetzt — Solid samt Flächen neu aus der DB aufgebaut.</p></div>
+      <div class="outcome no"><div class="otop"><span class="odot"></span><h4>Irgendeine Prüfung schlägt fehl</h4></div><p>Das gesamte Gebäude bleibt unverändert — kein Teil-Ersatz, keine Hüllen-Lücke.</p></div>
+    </div>
+    <p>Reißt die Kette an irgendeiner Stelle ab, bleibt das komplette Gebäude so, wie es vorher war. Grund: ein Teil-Ersatz könnte ausgerechnet die eine Fläche fehlen lassen, die die Hülle schließt — und ein Loch in einem sonst plausibel aussehenden Gebäude ist schwerer zu entdecken als ein Gebäude, das gar nicht erst angefasst wurde.</p>
+  </section>
+
+  <section>
+    <h2>Solid-Merge-Gate — wenn der Healer Gebäudeteile zusammenführt</h2>
+    <p class="sec-note">Party-Wall-Fälle: zwei oder mehr Gebäudeteile mit gemeinsamer Trennwand (z. B. Doppelhaushälfte oder späterer Anbau).</p>
+    <div class="sheet">
+      <span class="c3"></span><span class="c4"></span>
+      <div class="sheet-cap"><span>Party-Wall-Fall</span><span>Original → Healer-Vorschlag → unser Verhalten</span></div>
+      <svg viewBox="0 0 640 135" xmlns="http://www.w3.org/2000/svg">
+        <!-- stage 1: original -->
+        <rect x="20" y="20" width="70" height="70" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.3"/>
+        <rect x="90" y="20" width="70" height="70" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.3"/>
+        <line x1="90" y1="20" x2="90" y2="90" stroke="var(--ink)" stroke-width="2.2"/>
+        <text x="55" y="59" text-anchor="middle" font-size="10">Teil 1</text>
+        <text x="125" y="59" text-anchor="middle" font-size="10">Teil 2</text>
+        <text x="90" y="108" text-anchor="middle" font-size="9.5" class="lbl-strong">Original-GML</text>
+        <!-- arrow 1 -->
+        <line x1="170" y1="55" x2="215" y2="55" stroke="var(--line-strong)" stroke-width="1.4"/>
+        <polygon points="215,49 226,55 215,61" fill="var(--line-strong)"/>
+        <text x="192" y="40" text-anchor="middle" font-size="9">Healer liefert</text>
+        <!-- stage 2: merge proposal -->
+        <rect x="234" y="12" width="150" height="86" fill="var(--open-bg)" stroke="var(--open)" stroke-width="1.4" stroke-dasharray="6 4"/>
+        <text x="309" y="50" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--ink)">Merge-Solid</text>
+        <text x="309" y="65" text-anchor="middle" font-size="9">PartIdGml neu</text>
+        <g transform="translate(360,26)">
+          <polygon points="0,-7 7,7 -7,7" fill="var(--open-bg)" stroke="var(--open)" stroke-width="1.2"/>
+          <text x="0" y="4.5" text-anchor="middle" font-size="8" font-weight="700" fill="var(--open)">!</text>
+        </g>
+        <text x="309" y="118" text-anchor="middle" font-size="9.5" class="lbl-strong">Healer-DB (noch nicht ausgereift)</text>
+        <!-- arrow 2 -->
+        <line x1="394" y1="55" x2="439" y2="55" stroke="var(--line-strong)" stroke-width="1.4"/>
+        <polygon points="439,49 450,55 439,61" fill="var(--line-strong)"/>
+        <text x="416" y="40" text-anchor="middle" font-size="9">Gate greift</text>
+        <!-- stage 3: outcome -->
+        <rect x="458" y="20" width="70" height="70" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.3"/>
+        <rect x="528" y="20" width="70" height="70" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.3"/>
+        <line x1="528" y1="20" x2="528" y2="90" stroke="var(--ink)" stroke-width="2.2"/>
+        <text x="493" y="59" text-anchor="middle" font-size="10">Teil 1</text>
+        <text x="563" y="59" text-anchor="middle" font-size="10">Teil 2</text>
+        <text x="528" y="108" text-anchor="middle" font-size="9.5" class="lbl-strong">bleibt unverändert</text>
+        <g transform="translate(598,26)">
+          <circle r="11" fill="var(--ok-bg)" stroke="var(--data)" stroke-width="1.4"/>
+          <polyline points="-5,0 -1,4.5 6,-6" fill="none" stroke="var(--data)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+      </svg>
+    </div>
+    <p>Der Healer kann solche Teile zu einem gemeinsamen Volumenkörper verschmelzen oder umgekehrt einen Teil aufspalten. Das Ergebnis ist ein neuer Solid, der zu keinem der ursprünglichen Gebäudeteile mehr eindeutig passt. <strong>Diese Funktion im Healer ist noch nicht ausgereift genug</strong>, um sie zu übernehmen — in beobachteten Fällen fehlten nach dem Merge Wände oder das Dach schwebte ohne tragende Wände in der Luft.</p>
+    <p>Deshalb wird das bewusst zurückgehalten: erkennt <span class="mono">sql2gml</span> einen solchen Fall, bleibt das <strong>gesamte</strong> betroffene Gebäude unverändert, genau wie bei jedem anderen Valid-Gate-Fehler — lieber ein Gebäude, das (noch) nicht vom Healer profitiert, als eines mit sichtbar kaputter Geometrie.</p>
+    <p>Das gilt in <strong>beide Richtungen</strong>: auch wenn umgekehrt ein bestehender Gebäudeteil in der Healer-Datenbank plötzlich gar keine Zeile mehr hat — ohne Löschungs-Log, ohne Fehlermeldung, einfach weg — wird das genauso behandelt. Ein Gebäudeteil verschwindet dann nicht kommentarlos aus der Ausgabe, sondern das gesamte Gebäude bleibt wie es im Original war. Sobald der Healer-Code für Party-Wall-Fälle zuverlässig funktioniert, kann diese Sperre aufgehoben werden.</p>
+  </section>
+
+  <section>
+    <h2>Zwei Ausgabe-Varianten</h2>
+    <div class="grid g2">
+      <div class="fcard"><h4>Standard — HealedReplaceWorkflow</h4><p>Schreibt Dreiecksvermaschungen so, wie der Healer sie abgelegt hat (<span class="mono">gml:TriangulatedSurface</span>). Regulärer, schema-konformer CityGML-Bestandteil.</p></div>
+      <div class="fcard"><h4>PolygonOnly — PolygonOnlyReplaceWorkflow</h4><p>Identische Geometrie, aber jedes Dreieck als eigenes <span class="mono">gml:Polygon</span>. Grund: CityDoctor 3.18.2 kann eine per xlink eingebundene TIN nicht auflösen und meldet fälschlich einen Fehler — ein Werkzeug-Problem, kein echter Mangel.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bekannte fachliche Einschränkungen</h2>
+    <ul>
+      <li><strong>Triangulierte Wände erschweren nachgelagerte Bearbeitung.</strong> Konnte der Healer eine Wand nicht eben bekommen und sie deshalb als TIN abgelegt, lässt sich dort später kein sauberes Fenster/Tür mehr einschneiden (z. B. in der nachgelagerten LoD2→LoD3-Pipeline) — die Fläche ist kein einzelnes Polygon mehr, sondern viele kleine Dreiecke.</li>
+      <li><strong>CityDoctor 3.18.2 meldet bei TINs einen falschen Fehler</strong> (<span class="mono">GE_S_NOT_CLOSED</span>), obwohl die Geometrie tatsächlich geschlossen ist — ein bestätigter Mapper-Bug des Prüfwerkzeugs. Workaround: die PolygonOnly-Variante verwenden.</li>
+      <li><strong>Nur CityGML 1.0</strong> wird gelesen und geschrieben.</li>
+      <li><strong>Interior Rings</strong> (Löcher in Flächen) werden unterstützt, sind aber weniger getestet als der Normalfall.</li>
+    </ul>
+  </section>
+</section>
+
+<!-- ============ ADMINISTRIERENDE ============ -->
+<section class="panel" id="p-admin" role="tabpanel" aria-labelledby="t-admin" hidden>
+  <p class="lead">Installation, Ausführung, Hilfs-Tools, Troubleshooting. Für die fachliche Einordnung siehe <em>Benutzende</em>, für Architektur/Klassen <em>Programmierende</em>.</p>
+
+  <section>
+    <h2>Voraussetzungen &amp; Build</h2>
+    <div class="tbl-wrap"><table><thead><tr><th>Werkzeug</th><th>Mindestversion</th></tr></thead><tbody>
+      <tr><td>Java JDK</td><td class="k">21 LTS</td></tr>
+      <tr><td>Apache Maven</td><td class="k">3.6</td></tr>
+    </tbody></table></div>
+    <p>Alle Bibliotheken (citygml4j 3.2.7, sqlite-jdbc 3.47.x, gson 2.11.x, slf4j-simple 2.0.x) werden automatisch von Maven aus <span class="mono">pom.xml</span> geladen.</p>
+    <div class="cmd"><div class="cmdlbl">Build</div><pre>$env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
+cd sql2gml_neu
+mvn clean package -q</pre><button class="copy" data-copy='$env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
+cd sql2gml_neu
+mvn clean package -q'>Kopieren</button></div>
+    <p>Ergebnis: <span class="mono">target/sql2gml-complete.jar</span> (Fat-JAR). Main-Class ist <span class="mono">HealedReplaceWorkflow</span> — reines CMD-Tool, <span class="mono">java -jar</span> genügt.</p>
+  </section>
+
+  <section>
+    <h2>Ausführung</h2>
+    <h3>Modus 1 — Einzelne Datei</h3>
+    <div class="cmd"><div class="cmdlbl">Einzeldatei</div><pre>java -jar target/sql2gml-complete.jar &lt;input.gml&gt; &lt;database.db&gt; [&lt;output.gml&gt;]</pre><button class="copy" data-copy="java -jar target/sql2gml-complete.jar <input.gml> <database.db> [<output.gml>]">Kopieren</button></div>
+    <p>Ohne expliziten Output wird <span class="mono">&lt;input&gt;_new.gml</span> neben der Eingabe erzeugt.</p>
+
+    <h3>Modus 2 — Batch (ganzer Ordner)</h3>
+    <div class="cmd"><div class="cmdlbl">Batch</div><pre>java -jar target/sql2gml-complete.jar &lt;inputFolder&gt; &lt;database.db&gt; [&lt;outputFolder&gt;]</pre><button class="copy" data-copy="java -jar target/sql2gml-complete.jar <inputFolder> <database.db> [<outputFolder>]">Kopieren</button></div>
+    <p>Verarbeitet alle <span class="mono">.gml</span>-Dateien im Ordner (Output-Dateien mit Suffix <span class="mono">_new</span>).</p>
+
+    <h3>Modus 3 — Auto-Batch (empfohlen für Kacheln)</h3>
+    <div class="cmd"><div class="cmdlbl">Auto-Batch</div><pre>java -jar target/sql2gml-complete.jar &lt;database.db&gt; &lt;inputFolder&gt; &lt;outputFolder&gt; --auto</pre><button class="copy" data-copy="java -jar target/sql2gml-complete.jar <database.db> <inputFolder> <outputFolder> --auto">Kopieren</button></div>
+    <p>Liest die Dateiliste direkt aus der <span class="mono">CityGmlFiles</span>-Tabelle und überspringt Kacheln ohne jede Modifikation automatisch — DB-Index und CityGML-Kontext werden nur einmal pro Lauf geladen. Ideal für große Kachel-Datensätze (z. B. Dresden mit 100+ Kacheln).</p>
+
+    <h3>PolygonOnlyReplaceWorkflow</h3>
+    <div class="cmd"><div class="cmdlbl">Ohne TriangulatedSurface</div><pre>java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.PolygonOnlyReplaceWorkflow &lt;Argumente&gt;</pre><button class="copy" data-copy="java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.PolygonOnlyReplaceWorkflow <Argumente>">Kopieren</button></div>
+    <p>Identischer Aufruf zu allen drei Modi oben, andere Main-Class — einsetzen, wenn die Ausgabe mit CityDoctor 3.18.2 geprüft werden soll.</p>
+
+    <h3>Legacy-Workflows (altes DB-Schema)</h3>
+    <div class="cmd"><div class="cmdlbl">Nur bei altem Schema</div><pre>java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.legacy.ReplaceWorkflow &lt;gleiche Argumente&gt;
+java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.legacy.CompleteWorkflow &lt;gleiche Argumente&gt;</pre><button class="copy" data-copy="java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.legacy.ReplaceWorkflow <gleiche Argumente>
+java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.legacy.CompleteWorkflow <gleiche Argumente>">Kopieren</button></div>
+    <p>Nur verwenden, wenn die Datenbank noch das alte Schema (<span class="mono">Polygons</span>+<span class="mono">LinearRings</span> statt <span class="mono">SurfaceGeometries</span>+<span class="mono">PosLists</span>) hat.</p>
+  </section>
+
+  <section>
+    <h2>GUI (Desktop-Anwendung)</h2>
+    <p class="sec-note">Für Nutzende ohne CMD/PowerShell/IDE — z. B. Projektpartner — gibt es eine eigenständige <span class="mono">.exe</span> mit grafischer Oberfläche, die exakt dieselbe, bereits verifizierte Workflow-Logik aufruft wie die Kommandozeile.</p>
+    <h3>Herunterladen/Starten</h3>
+    <p><span class="mono">sql2gml.zip</span> entpacken, <span class="mono">sql2gml.exe</span> im entpackten Ordner doppelklicken. Kein Java, kein CMD nötig — die Laufzeit ist eingebettet. Der allererste Start kann etwas dauern (Windows prüft eine neue, unsignierte <span class="mono">.exe</span> einmalig), danach startet es normal schnell.</p>
+    <h3>Bedienung</h3>
+    <ol>
+      <li><strong>Modus</strong>: Einzelne Datei oder Ordner (Batch).</li>
+      <li><strong>CityGML-Datei/Ordner</strong>: die Eingabe.</li>
+      <li><strong>Healer-Datenbank (.db)</strong>: Pflichtfeld.</li>
+      <li><strong>Ausgabedatei/-ordner</strong> (optional): ohne Angabe gelten dieselben Standardwerte wie beim CLI-Aufruf.</li>
+      <li><strong>Checkbox „Ohne TriangulatedSurface schreiben“</strong>: entspricht <span class="mono">PolygonOnlyReplaceWorkflow</span>, siehe <em>Benutzende</em>.</li>
+      <li><strong>Konvertierung starten</strong> — Fortschrittsbalken mit echten Werten und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.</li>
+    </ol>
+    <p>Technische Details zur GUI (Bibliotheken, Architektur): siehe <em>Programmierende</em>.</p>
+  </section>
+
+  <section>
+    <h2>Hilfs-Tools</h2>
+    <h3>ExtractSst — Gebäude mit sst-Attribut extrahieren</h3>
+    <p>Extrahiert nur Gebäude mit dem generischen Attribut <span class="mono">name="sst"</span> (textstrom-basiert, effizient auch für sehr große Kacheln).</p>
+    <div class="cmd"><div class="cmdlbl">ExtractSst</div><pre>java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractSst &lt;input.gml&gt;                  # Output: _sst.gml
+java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractSst &lt;input.gml&gt; &lt;output.gml&gt;     # expliziter Pfad
+java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractSst &lt;folder&gt; [&lt;outputFolder&gt;]    # ganzer Ordner</pre><button class="copy" data-copy="java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractSst <input.gml>
+java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractSst <input.gml> <output.gml>
+java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractSst <folder> [<outputFolder>]">Kopieren</button></div>
+
+    <h3>ExtractBuildings — Gebäude nach gml:id extrahieren</h3>
+    <div class="cmd"><div class="cmdlbl">ExtractBuildings</div><pre>java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractBuildings &lt;input.gml&gt; &lt;output.gml&gt; &lt;ID1&gt; [ID2] ...</pre><button class="copy" data-copy="java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractBuildings <input.gml> <output.gml> <ID1> [ID2] ...">Kopieren</button></div>
+  </section>
+
+  <section>
+    <h2>Troubleshooting</h2>
+    <h3>Geometrie wird beim Lesen null, obwohl das XML korrekt aussieht</h3>
+    <p>Build-Problem, kein Laufzeitfehler: das Fat-JAR muss mit dem <span class="mono">ServicesResourceTransformer</span> des <span class="mono">maven-shade-plugin</span> gebaut sein (bereits in <span class="mono">pom.xml</span> konfiguriert). Fehlt er, werden die <span class="mono">META-INF/services</span>-Dateien beim Zusammenführen nicht korrekt kombiniert, citygml4j registriert dann die GML-3.1.1-Adapter nicht und parst Geometrie-Elemente als <span class="mono">null</span>.</p>
+    <h3>Wie finde ich Gebäude mit triangulierten Wänden?</h3>
+    <p><span class="mono">HealedReplaceWorkflow</span> gibt am Ende eines Laufs eine gesonderte Statistik/Liste betroffener Gebäude aus (<span class="mono">buildingsWithTinWall</span>) — diese Wände sind für nachgelagerte Bearbeitung ungünstig, siehe <em>Benutzende</em>.</p>
+    <h3>CityDoctor 3.18.2 meldet GE_S_NOT_CLOSED auf einer sichtbar geschlossenen Fläche</h3>
+    <p>Bekannter Mapper-Bug des Prüfwerkzeugs bei per xlink referenzierten TriangulatedSurfaces, keine echte Geometrie-Lücke. Workaround: mit <span class="mono">PolygonOnlyReplaceWorkflow</span> erzeugen statt mit dem Standard-Workflow.</p>
+    <h3>Kompletter Ordner statt einzelner Kacheln — welcher Modus?</h3>
+    <p>Für einen einmaligen Testlauf reicht Modus 2 (Batch, ganzer Ordner). Für wiederholte Läufe auf demselben großen Datensatz Modus 3 (Auto-Batch) verwenden — er überspringt unveränderte Kacheln automatisch und spart dadurch spürbar Zeit.</p>
+  </section>
+</section>
+
+<!-- ============ PROGRAMMIERENDE ============ -->
+<section class="panel" id="p-dev" role="tabpanel" aria-labelledby="t-dev" hidden>
+  <p class="lead">Architektur, Datenbankschema, Klassen, citygml4j-Muster, offene Punkte. Für Aufruf/Konfiguration siehe <em>Administrierende</em>, für fachliche Einordnung <em>Benutzende</em>.</p>
+
+  <section>
+    <h2>Übersicht: zwei DB-Schema-Generationen, vier Workflows</h2>
+    <div class="tbl-wrap"><table><thead><tr><th>Workflow</th><th>DB-Schema</th><th>Strategie</th><th>Status</th></tr></thead><tbody>
+      <tr><td class="k">HealedReplaceWorkflow</td><td>neu</td><td>Kompletter Geometrie-Ersatz auf Building-Ebene, inkl. Solid+XLinks; neue/überholte BuildingParts automatisch angelegt/entfernt</td><td><span class="chip ok">Haupt-Workflow</span></td></tr>
+      <tr><td class="k">PolygonOnlyReplaceWorkflow</td><td>neu</td><td>Identisch, schreibt aber niemals TriangulatedSurface</td><td>Validator-Variante</td></tr>
+      <tr><td class="k">legacy.ReplaceWorkflow</td><td>alt</td><td>Kompletter Geometrie-Ersatz, Vorgänger von HealedReplaceWorkflow</td><td>Legacy</td></tr>
+      <tr><td class="k">legacy.CompleteWorkflow</td><td>alt</td><td>Selektives Koordinaten-Update einzelner Polygone, IsValid-Kaskade, Polygon-Splitting</td><td>Legacy</td></tr>
+    </tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Datenbankschema (neues Healer-Schema)</h2>
+    <div class="tree">CityGmlFiles
+<span class="cm">└──</span> <span class="f">Buildings (n)</span>              <span class="cm">IsValid, Log, Attributes (JSON)</span>
+    <span class="cm">└──</span> <span class="f">BuildingParts (n)</span>  <span class="cm">IsValid, Log, Attributes (JSON)</span>
+        <span class="cm">└──</span> <span class="f">Surfaces (n)</span>             <span class="cm">IsValid, Log, Attributes (JSON: FACEAREA, NORMAL_AZI, ...)</span>
+            <span class="cm">└──</span> <span class="f">SurfaceGeometries (1 je Surface)</span>  <span class="cm">IsValid, Log, GeometryTypeId</span>
+                <span class="cm">└──</span> <span class="f">PosLists (n)</span>   <span class="cm">IsValid, Log, PosList, PosListIndex</span></div>
+    <p style="margin-top:14px;">Unterschied zum alten Schema (siehe „Legacy" unten): <span class="mono">Polygons</span>+<span class="mono">LinearRings</span> wurden durch <span class="mono">SurfaceGeometries</span>+<span class="mono">PosLists</span> ersetzt — eine Surface hat jetzt genau EINE Geometrie, die per <span class="mono">GeometryTypeId</span> entweder ein klassisches Polygon (<span class="mono">0</span>) oder eine TIN (<span class="mono">1</span>) ist.</p>
+
+    <div class="acc">
+      <details><summary><span class="tt">CityGmlFiles</span><span class="arrow">▸</span></summary><div class="body"><div class="tbl-wrap"><table><thead><tr><th>Spalte</th><th>Typ</th><th>Beschreibung</th></tr></thead><tbody>
+        <tr><td class="k">Id</td><td>INTEGER</td><td>Primary Key</td></tr>
+        <tr><td class="k">Filename</td><td>TEXT</td><td>Dateiname der CityGML-Kachel</td></tr>
+      </tbody></table></div></div></details>
+      <details><summary><span class="tt">Buildings</span><span class="arrow">▸</span></summary><div class="body"><div class="tbl-wrap"><table><thead><tr><th>Spalte</th><th>Typ</th><th>Beschreibung</th></tr></thead><tbody>
+        <tr><td class="k">Id</td><td>INTEGER</td><td>Primary Key</td></tr>
+        <tr><td class="k">BuildingIdGml</td><td>TEXT</td><td>gml:id des Buildings</td></tr>
+        <tr><td class="k">FileId</td><td>INTEGER</td><td>Referenz auf CityGmlFiles</td></tr>
+        <tr><td class="k">Attributes</td><td>TEXT</td><td>JSON mit Attributen</td></tr>
+        <tr><td class="k">IsValid</td><td>INTEGER</td><td>0 oder 1</td></tr>
+        <tr><td class="k">Log</td><td>TEXT</td><td>Validierungsprotokoll</td></tr>
+      </tbody></table></div></div></details>
+      <details><summary><span class="tt">BuildingParts</span><span class="arrow">▸</span></summary><div class="body"><div class="tbl-wrap"><table><thead><tr><th>Spalte</th><th>Typ</th><th>Beschreibung</th></tr></thead><tbody>
+        <tr><td class="k">Id</td><td>INTEGER</td><td>Primary Key</td></tr>
+        <tr><td class="k">PartIdGml</td><td>TEXT</td><td>null/leer → gehört zum Building; existierende GML-Part-ID → in-place; sonst → Solid-Merge-Gate greift</td></tr>
+        <tr><td class="k">BuildingId</td><td>INTEGER</td><td>Referenz auf Buildings</td></tr>
+        <tr><td class="k">Attributes / IsValid / Log</td><td>TEXT / INTEGER / TEXT</td><td>wie oben</td></tr>
+      </tbody></table></div></div></details>
+      <details><summary><span class="tt">Surfaces</span><span class="arrow">▸</span></summary><div class="body"><div class="tbl-wrap"><table><thead><tr><th>Spalte</th><th>Typ</th><th>Beschreibung</th></tr></thead><tbody>
+        <tr><td class="k">SurfaceIdGml</td><td>TEXT</td><td>gml:id der Surface</td></tr>
+        <tr><td class="k">SurfaceTypeId</td><td>INTEGER</td><td>0=None (→WallSurface-Fallback), 1=Ground, 2=Wall, 3=Roof</td></tr>
+        <tr><td class="k">BuildingPartId</td><td>INTEGER</td><td>Referenz auf BuildingParts</td></tr>
+        <tr><td class="k">Attributes</td><td>TEXT</td><td>JSON: FACEAREA, NORMAL_AZI, NORMAL_H, Z_Max, Z_Min, Z_MAX_ASL, Z_MIN_ASL</td></tr>
+      </tbody></table></div></div></details>
+      <details><summary><span class="tt">SurfaceGeometries</span> <span style="font-weight:400; font-size:.8rem; color:var(--ink-faint);">— genau 1 je Surface</span><span class="arrow">▸</span></summary><div class="body"><div class="tbl-wrap"><table><thead><tr><th>Spalte</th><th>Typ</th><th>Beschreibung</th></tr></thead><tbody>
+        <tr><td class="k">GeometryIdGml</td><td>TEXT</td><td>gml:id der Geometrie</td></tr>
+        <tr><td class="k">GeometryTypeId</td><td>INTEGER</td><td>0 = Polygon, 1 = TriangulatedSurface (TIN)</td></tr>
+      </tbody></table></div></div></details>
+      <details><summary><span class="tt">PosLists</span><span class="arrow">▸</span></summary><div class="body"><div class="tbl-wrap"><table><thead><tr><th>Spalte</th><th>Typ</th><th>Beschreibung</th></tr></thead><tbody>
+        <tr><td class="k">SurfaceGeometryId</td><td>INTEGER</td><td>Referenz auf SurfaceGeometries</td></tr>
+        <tr><td class="k">PosListIndex</td><td>INTEGER</td><td>Polygon: 0=Außenring, 1+=Löcher. TIN: jede PosList ein unabhängiges Dreieck</td></tr>
+        <tr><td class="k">PosList</td><td>TEXT</td><td>Koordinaten "x y z x y z ...", geschlossener Ring</td></tr>
+      </tbody></table></div></div></details>
+    </div>
+
+    <h3>Valid-Gate (isFullyValid, striktes All-or-Nothing)</h3>
+    <div class="cmd"><div class="cmdlbl">Pseudocode</div><pre>Building.isValid()
+  UND für JEDEN BuildingPart:   part.isValid()
+  UND für JEDE Surface:         surface.isValid()
+  UND deren SurfaceGeometry:    geometry != null, geometry.isValid(), mind. 1 PosList
+  UND für JEDE PosList:         posList.isValid()
+  UND mindestens 1 BuildingPart vorhanden
+  UND Solid-Merge-Gate:         JEDER DB-Part mit gesetzter PartIdGml referenziert ein
+                                 BEREITS bestehendes GML-BuildingPart (1:1)</pre></div>
+
+    <h3>Solid-Merge-Gate — technisch</h3>
+    <p>Der Healer erzeugt bei einem Party-Wall-Merge oder -Split eine <span class="mono">PartIdGml</span>, die zu keinem bestehenden GML-BuildingPart passt. Früher wurde dafür automatisch ein neues BuildingPart angelegt. <strong>Das ist bewusst deaktiviert:</strong> der Healer-Code für diesen Fall ist noch nicht ausgereift genug und hat sichtbar kaputte Geometrie produziert (fehlende Wände, schwebendes Dach). Bis der Healer-Code dafür reif ist, disqualifiziert jede solche <span class="mono">PartIdGml</span> das gesamte Building. <strong>Erweiterung auf die Rückrichtung:</strong> das Gate prüft zusätzlich, ob jeder bestehende GML-Part einen DB-Gegenpart hat — fehlt auch nur einer komplett, bleibt das gesamte Building ebenfalls unverändert.</p>
+  </section>
+
+  <section>
+    <h2>Klassen im Detail</h2>
+    <div class="acc">
+      <details open><summary><span class="tt">HealedReplaceWorkflow.java — Haupt-Workflow</span><span class="arrow">▸</span></summary>
+        <div class="body">
+          <div class="flow">
+            <div class="fstep"><div class="dot">1</div><h4>Datenbank lesen (einmal pro Lauf)</h4><p>DbReader lädt alle Buildings hierarchisch, Index: BuildingIdGml → DB-Building</p></div>
+            <div class="fstep"><div class="dot">2</div><h4>CityGML verarbeiten (Streaming, kein ObjectWalker)</h4><p>Einfache while-Schleife mit instanceof — Nicht in DB: durchreichen · In DB, nicht valide: Original erhalten · In DB und valide: Attribute schreiben, Boundaries neu aufbauen, überholte Parts entfernen, lod2Solid neu aus Geometrie-IDs</p></div>
+          </div>
+          <p>Was erhalten bleibt: Building-eigene CityGML-Attribute (measuredHeight, function, Adresse, …) — nur Geometrie und DB-Attribute werden ersetzt.</p>
+          <h4 style="margin-top:16px;">BuildingPart-Zielbestimmung</h4>
+          <div class="tbl-wrap"><table><thead><tr><th>PartIdGml</th><th>Ziel</th></tr></thead><tbody>
+            <tr><td class="k">null/leer</td><td>das Building selbst</td></tr>
+            <tr><td class="k">existierende GML-Part-ID</td><td>bestehendes BuildingPart (in-place)</td></tr>
+          </tbody></table></div>
+          <h4 style="margin-top:16px;">GeometryMode</h4>
+          <div class="tbl-wrap"><table><thead><tr><th>Modus</th><th>TIN wird geschrieben als</th><th>Verwendet von</th></tr></thead><tbody>
+            <tr><td class="k">AS_IN_DATABASE</td><td>gml:TriangulatedSurface, 1:1 zur DB</td><td>HealedReplaceWorkflow</td></tr>
+            <tr><td class="k">ALWAYS_POLYGON</td><td>N einzelne gml:Polygon</td><td>PolygonOnlyReplaceWorkflow</td></tr>
+          </tbody></table></div>
+        </div>
+      </details>
+      <details><summary><span class="tt">PolygonOnlyReplaceWorkflow.java</span><span class="arrow">▸</span></summary><div class="body"><p>30-Zeilen-Wrapper: ruft <span class="mono">HealedReplaceWorkflow.setGeometryMode(ALWAYS_POLYGON)</span> und delegiert an <span class="mono">HealedReplaceWorkflow.main(args)</span>.</p></div></details>
+      <details><summary><span class="tt">DbReader.java</span><span class="arrow">▸</span></summary><div class="body"><p>Liest die hierarchische Datenstruktur aus der SQLite-Datenbank. Jede Tabelle wird genau einmal komplett gelesen und im Speicher über die Fremdschlüssel zusammengesetzt (kein N+1-Query-Muster). Wichtige Methoden: <span class="mono">readAllBuildings()</span>, <span class="mono">getCityGmlFiles()</span>, <span class="mono">hasModificationsForFile(fileId)</span>.</p></div></details>
+      <details><summary><span class="tt">GmlMemberFilter.java</span><span class="arrow">▸</span></summary><div class="body"><p>Gemeinsamer, zeilenbasierter Streaming-Filter — Basis für <span class="mono">ExtractSst</span> und <span class="mono">ExtractBuildings</span>. Kopiert den Datei-Rahmen unverändert und schreibt jeden <span class="mono">cityObjectMember</span>-Block nur, wenn ein übergebenes Prädikat zutrifft.</p></div></details>
+      <details><summary><span class="tt">Model-Klassen (neues Schema)</span><span class="arrow">▸</span></summary><div class="body"><div class="tbl-wrap"><table><thead><tr><th>Klasse</th><th>Beschreibung</th></tr></thead><tbody>
+        <tr><td class="k">Building</td><td>id, buildingIdGml, fileId, attributes, valid, log, buildingParts</td></tr>
+        <tr><td class="k">BuildingPart</td><td>id, buildingId, partIdGml, attributes, valid, log, surfaces</td></tr>
+        <tr><td class="k">Surface</td><td>genau EINE SurfaceGeometry (nicht mehr eine Liste von Polygonen)</td></tr>
+        <tr><td class="k">SurfaceGeometry</td><td>ersetzt Polygon. geometryTypeId: TYPE_POLYGON=0, TYPE_TRIANGULATED_SURFACE=1</td></tr>
+        <tr><td class="k">PosList</td><td>ersetzt LinearRing</td></tr>
+      </tbody></table></div></div></details>
+    </div>
+  </section>
+
+  <section>
+    <h2>citygml4j — Architektur und Muster</h2>
+    <div class="tree"><span class="f">CityGMLContext</span>
+<span class="cm">├──</span> createCityGMLInputFactory()  → <span class="f">CityGMLReader</span>
+<span class="cm">└──</span> createCityGMLOutputFactory() → <span class="f">CityGMLChunkWriter</span>
+
+<span class="f">Building</span>
+<span class="cm">├──</span> boundedBy → WallSurface / RoofSurface / GroundSurface
+<span class="cm">│</span>       └── lod2MultiSurface → MultiSurface → surfaceMember → Polygon → exterior/interior → LinearRing → posList
+<span class="cm">├──</span> lod2Solid → SolidProperty → Solid → Shell (CompositeSurface) → surfaceMember → xlink:href
+<span class="cm">└──</span> getBuildingParts() → BuildingPart (gleiche Struktur)</div>
+    <p style="margin-top:14px;"><strong>ObjectWalker-Verzicht im Haupt-Workflow:</strong> <span class="mono">HealedReplaceWorkflow</span> liest mit einer einfachen <span class="mono">while (reader.hasNext())</span>-Schleife über die Chunk-Features und unterscheidet Feature-Typen per <span class="mono">instanceof Building</span> — kein <span class="mono">ObjectWalker</span>, kein Visitor. Der Replace-Ansatz ersetzt beim Treffer die komplette Boundary/Solid eines Buildings auf einmal, es muss also nicht in die Tiefe (Polygon-Ebene) traversiert werden. Das <span class="mono">ObjectWalker</span>-Pattern wird nur noch von den Legacy-Workflows verwendet.</p>
+
+    <div class="cmd"><div class="cmdlbl">lod2Solid / CompositeSurface navigieren</div><pre>SolidProperty solidProp = building.getLod2Solid();
+Solid solid = (Solid) solidProp.getObject();
+Shell shell = solid.getExterior().getObject();
+List&lt;SurfaceProperty&gt; refs = shell.getSurfaceMembers();   // xlink:href-Eintraege
+
+SurfaceProperty newRef = new SurfaceProperty();
+newRef.setHref("#neuePolygonId");
+refs.add(newRef);
+
+// BuildingParts ueber Building.getBuildingParts() (NICHT DeprecatedPropertiesOfAbstractBuilding!)
+for (var partProp : building.getBuildingParts()) {
+    BuildingPart part = partProp.getObject();
+    SolidProperty partSolid = part.getLod2Solid();
+}</pre></div>
+  </section>
+
+  <section>
+    <h2>Technische Hinweise</h2>
+    <div class="callout"><div class="ctitle">maven-shade-plugin: ServicesResourceTransformer</div><p>Kritisch für das Fat-JAR: <span class="mono">&lt;transformer implementation="...ServicesResourceTransformer"/&gt;</span>. Ohne diesen Transformer werden <span class="mono">META-INF/services</span>-Dateien nicht korrekt zusammengeführt — citygml4j registriert die GML-3.1.1-Adapter nicht, Geometrie-Elemente werden <span class="mono">null</span>.</p></div>
+    <div class="callout"><div class="ctitle">DefaultReferenceResolver nicht verwenden</div><p>Bricht inline-Geometrie. Der <span class="mono">ObjectWalker</span> (wo noch verwendet) greift direkt auf die Geometrie zu, ohne Resolver.</p></div>
+    <div class="callout"><div class="ctitle">TIN / TriangulatedSurface</div><p><span class="mono">gml:TriangulatedSurface</span> ist über die Substitutionskette <span class="mono">TriangulatedSurface → Surface → _Surface</span> regulärer Bestandteil von GML 3.1.1/CityGML 1.0 (bestätigt durch citygml-tools). CityDoctor 3.18.2 kann eine per xlink referenzierte TIN aber nicht auflösen — dafür existiert <span class="mono">PolygonOnlyReplaceWorkflow</span>.</p></div>
+  </section>
+
+  <section>
+    <h2>Legacy (altes DB-Schema, nicht weiterentwickelt)</h2>
+    <p>Die Klassen im Package <span class="mono">de.mpsc.sql2gml.legacy</span> (<span class="mono">ReplaceWorkflow</span>, <span class="mono">CompleteWorkflow</span>, <span class="mono">DatabaseReader</span>, <span class="mono">legacy.model.*</span>) arbeiten auf dem alten DB-Schema (<span class="mono">Polygons</span>+<span class="mono">LinearRings</span>) und werden nicht mehr weiterentwickelt. Wesentliche Unterschiede: eine Surface konnte mehrere Polygone tragen; die IsValid-Prüfung lief top-down und konnte einzelne Ebenen überspringen statt All-or-Nothing; <span class="mono">CompleteWorkflow</span> patcht zusätzlich einzelne Polygone selektiv (inkl. Splitting) statt komplette Gebäude zu ersetzen.</p>
+    <p style="font-size:.88rem; color:var(--ink-faint);">Vollständige Klassen-/Methodendokumentation (u. a. PolygonIndex, GmlUpdateWalker, Log-Übertragungsschema, Header-Korrektur): siehe <a href="Doku_Legacy.md">Doku_Legacy.md</a>, Abschnitt „Legacy".</p>
+  </section>
+
+  <section>
+    <h2>Projektstruktur</h2>
+    <div class="tree">sql2gml_neu/
+<span class="cm">├──</span> <span class="f">pom.xml</span>                          <span class="cm">Maven-Konfiguration (inkl. maven-shade-plugin)</span>
+<span class="cm">├──</span> <span class="f">Doku.md / Doku_*.md</span>              <span class="cm">Dokumentation</span>
+<span class="cm">├──</span> <span class="f">README.md</span>                        <span class="cm">Kurzanleitung</span>
+<span class="cm">└──</span> <span class="f">src/main/java/de/mpsc/sql2gml/</span>
+    <span class="cm">├──</span> <span class="f">HealedReplaceWorkflow.java</span>   <span class="cm">HAUPT-Workflow, neues Schema (Main-Class)</span>
+    <span class="cm">├──</span> <span class="f">PolygonOnlyReplaceWorkflow.java</span>  <span class="cm">Variante ohne TriangulatedSurface</span>
+    <span class="cm">├──</span> <span class="f">DbReader.java</span>                <span class="cm">Datenbankzugriff, neues Schema</span>
+    <span class="cm">├──</span> <span class="f">GmlMemberFilter.java</span>         <span class="cm">Gemeinsamer Streaming-Filter</span>
+    <span class="cm">├──</span> <span class="f">ExtractSst.java / ExtractBuildings.java</span>
+    <span class="cm">├──</span> <span class="f">gui/Sql2GmlGui.java</span>          <span class="cm">Desktop-Oberfläche (siehe „GUI-Anwendung" unten)</span>
+    <span class="cm">├──</span> <span class="f">model/</span>                       <span class="cm">Building/BuildingPart/Surface/SurfaceGeometry/PosList</span>
+    <span class="cm">└──</span> <span class="f">legacy/</span>                      <span class="cm">Altes Schema, nicht weiterentwickelt</span></div>
+  </section>
+
+  <section>
+    <h2>GUI-Anwendung</h2>
+    <p class="sec-note"><span class="mono">de.mpsc.sql2gml.gui.Sql2GmlGui</span> — eigenständige Desktop-Oberfläche für Nutzende ohne CMD/PowerShell (siehe <em>Administrierende</em>). Zusätzliche Main-Class im selben Fat-JAR, keine eigene Kopie der Workflow-Logik.</p>
+    <h3>Verwendete Bibliotheken</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Zweck</th><th>Bibliothek</th><th>Warum</th></tr></thead>
+      <tbody>
+        <tr><td>UI-Toolkit</td><td class="k">Swing</td><td>JDK-Bestandteil, kein Zusatz-Download</td></tr>
+        <tr><td>Look-and-Feel</td><td class="k">FlatLaf 3.7.2</td><td>Modernes, flaches Erscheinungsbild statt Standard-Swing-„Metal“; Hell/Dunkel per Button umschaltbar (nicht ans Windows-Theme gekoppelt — bräuchte zusätzlich eine Registry-Abfrage)</td></tr>
+        <tr><td>Paketierung</td><td class="k">jpackage</td><td>JDK-Bestandteil (seit 14) — baut aus dem Fat-JAR eine eigenständige <span class="mono">.exe</span> samt Laufzeit, <span class="mono">--type app-image</span>, kein Installer/WiX nötig</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Architektur-Prinzip: dünne UI-Schicht, keine Logik-Duplikation</h3>
+    <p>Die GUI ruft <span class="mono">HealedReplaceWorkflow.run(String[] args)</span> direkt auf — denselben Code-Pfad, den auch <span class="mono">main()</span> (CLI) nutzt. Verifiziert per Diff: CLI-Aufruf und GUI-Aufruf erzeugen auf den 14 Testgebäuden bytegleiche Ausgabe. <span class="mono">run()</span> wirft Exceptions statt <span class="mono">System.exit()</span> aufzurufen, damit die GUI einen Fehler in einem Dialog anzeigen kann — CLI-Verhalten bleibt unverändert.</p>
+    <h3>Fortschritts-Hook und Log-Anzeige</h3>
+    <p><span class="mono">ProgressListener</span> (statisch, <span class="mono">null</span> im CLI-Betrieb = No-Op) meldet <span class="mono">onFileStart(fileIndex, totalFiles, filename)</span> im Batch-Modus (echte Werte) und <span class="mono">onFeature(featuresRead)</span> nach jedem gelesenen CityGML-Feature. Für einen echten X/Y-Balken im Einzeldatei-Modus zählt die GUI vorab die <span class="mono">&lt;core:cityObjectMember&gt;</span>-Zeilen der Eingabedatei — dasselbe Prinzip wie in <span class="mono">GmlMemberFilter</span>. <span class="mono">System.out</span>/<span class="mono">System.err</span> werden beim GUI-Start (vor jedem Zugriff auf <span class="mono">HealedReplaceWorkflow</span>, da SLF4J-Simple den Ziel-Stream beim ersten <span class="mono">getLogger()</span>-Aufruf fest bindet) durch einen zeilenweise puffernden Stream ersetzt, der jede Zeile zusätzlich an die Swing-Textfläche weiterreicht.</p>
+  </section>
+
+  <section>
+    <h2>Bekannte offene Punkte</h2>
+    <ul>
+      <li><span class="chip open">bewusste Sperre</span> <strong>Solid-Merge-Gate bleibt vorerst aktiv:</strong> solange der Healer-Code für Party-Wall-Merge/-Split nicht ausgereift ist, werden betroffene Gebäude weiterhin komplett unangetastet gelassen statt teilweise verbessert.</li>
+      <li><span class="chip open">offen</span> <strong>Triangulierte Wände blockieren nachgelagerte LoD3-Bearbeitung</strong> — betroffene Buildings über <span class="mono">Stats.buildingsWithTinWall</span> identifizierbar.</li>
+      <li><span class="chip open">Werkzeug-Bug</span> <strong>CityDoctor 3.18.2 TIN-xlink-Limitation:</strong> führt zu falsch-positiven <span class="mono">GE_S_NOT_CLOSED</span>-Meldungen. Workaround: PolygonOnlyReplaceWorkflow.</li>
+      <li><span class="chip open">Eigenheit</span> <strong>ObjectWalker und lod2Solid:</strong> traversiert bei CityGML 1.0 die lod2Solid-Geometrie nicht — CompositeSurface-Änderungen müssen programmatisch erfolgen.</li>
+      <li><span class="chip open">Eigenheit</span> <strong>BuildingParts-Zugriff:</strong> <span class="mono">Building.getBuildingParts()</span> ist die korrekte API — die deprecated Variante wird bei CityGML 1.0 nicht befüllt.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Bugfixes (2026-09-02, abgeschlossen)</h2>
+    <ul>
+      <li><strong>gml:name ging bei jeder zurückgeschriebenen Fläche verloren</strong> — die DB kennt keine Name-Spalte; wird jetzt deterministisch aus <span class="mono">SurfaceTypeId</span> abgeleitet (<span class="mono">LOD2_Wall</span>/<span class="mono">_Roof</span>/<span class="mono">_Ground</span>), an ~110.000 echten Flächen als 1:1 bestätigt.</li>
+      <li><strong>BuildingPart (Anbau) verschwand komplett aus der Ausgabe</strong> — behoben durch die Erweiterung des Solid-Merge-Gates auf die Rückrichtung (siehe oben).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Weiterführende Links</h2>
+    <ul class="refs">
+      <li><a href="https://github.com/citygml4j/citygml4j">citygml4j GitHub</a></li>
+      <li><a href="https://www.citygml.org/">CityGML Standard</a></li>
+      <li><a href="https://www.ogc.org/standards/citygml">OGC CityGML 2.0</a></li>
+    </ul>
+  </section>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">sql2gml · Rohtext-Basis: Doku_Benutzende.md / Doku_Administrierende.md / Doku_Programmierende.md · Kurzeinstieg/CLI-Aufruf siehe README.md</div>
+</footer>
+
+<script>
+(function(){
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var panels = { benutzer: document.getElementById('p-benutzer'), admin: document.getElementById('p-admin'), dev: document.getElementById('p-dev') };
+  function select(name, push){
+    tabs.forEach(function(t){ t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false'); });
+    Object.keys(panels).forEach(function(k){ panels[k].hidden = (k !== name); });
+    try{ localStorage.setItem('sql2gmldoku.tab', name); }catch(e){}
+    if(push){ history.replaceState(null, '', '#' + name); }
+  }
+  tabs.forEach(function(t){ t.addEventListener('click', function(){ select(t.dataset.tab, true); }); });
+  var start = (location.hash || '').replace('#','');
+  if(!panels[start]){
+    try{ start = localStorage.getItem('sql2gmldoku.tab') || 'benutzer'; }catch(e){ start = 'benutzer'; }
+  }
+  if(!panels[start]) start = 'benutzer';
+  select(start, false);
+
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var text = btn.getAttribute('data-copy') || '';
+      function done(){ btn.classList.add('done'); btn.textContent='Kopiert'; setTimeout(function(){btn.classList.remove('done'); btn.textContent='Kopieren';},1400); }
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(done).catch(function(){});
+        }
+      }catch(e){}
+    });
+  });
+})();
+</script>

@@ -59,6 +59,16 @@ Ergebnis: `target/sql2gml-complete.jar` — ein eigenständiges JAR mit allen Ab
 
 ---
 
+## Desktop-GUI (.exe)
+
+Für Nutzung ohne CMD/PowerShell: `sql2gml.zip` entpacken, `sql2gml.exe` doppelklicken — kein Java nötig, Laufzeit ist eingebaut.
+
+Auswahl in der Oberfläche: CityGML-Datei/-Ordner, Healer-Datenbank (.db), optional eine Ausgabedatei/-ordner, Checkbox für die PolygonOnly-Variante (CityDoctor-Workaround).
+
+Läuft intern exakt denselben Workflow wie der CLI-Aufruf unten — kein separates Werkzeug, keine abweichenden Ergebnisse. Details zur Bedienung: [Doku_Administrierende.md](Doku_Administrierende.md).
+
+---
+
 ## Verwendung
 
 ### Modus 1 — Einzelne Datei
@@ -138,7 +148,14 @@ java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.ExtractBuildings <input.gml
 
 ## Ausführliche Dokumentation
 
-**→ [Doku.md](Doku.md)** — Vollständige Klassen-Dokumentation, Datenbankschema (neu + Legacy), Algorithmen und citygml4j-Codebeispiele.
+Als [interaktive HTML-Seite](docs/index.html) oder einzeln:
+
+- [Doku_Benutzende.md](Doku_Benutzende.md) — was der Healer zurückliefert, Valid-Gate/Solid-Merge-Gate erklärt
+- [Doku_Administrierende.md](Doku_Administrierende.md) — Installation, Ausführung, Hilfs-Tools, Troubleshooting
+- [Doku_Programmierende.md](Doku_Programmierende.md) — Architektur, DB-Schema, Klassen, citygml4j-Muster
+- [Doku_Legacy.md](Doku_Legacy.md) — Archiv, vollständige Fassung vor der Aufteilung
+
+**→ [Doku.md](Doku.md)** — Index dieser vier Dokus.
 
 ## Lizenz
 

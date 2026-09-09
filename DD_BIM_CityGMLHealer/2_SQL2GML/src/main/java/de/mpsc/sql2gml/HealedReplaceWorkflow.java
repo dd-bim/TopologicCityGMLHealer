@@ -47,8 +47,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 /**
- * Haupt-Workflow fuer das neue Healer-Schema (SurfaceGeometries+PosLists). Ersetzt komplette
- * Buildings/BuildingParts, sofern DB-seitig vollstaendig valide (siehe Doku.md, Abschnitt
+ * Haupt-Workflow für das neue Healer-Schema (SurfaceGeometries+PosLists). Ersetzt komplette
+ * Buildings/BuildingParts, sofern DB-seitig vollständig valide (siehe Doku.md, Abschnitt
  * "HealedReplaceWorkflow").
  *
  * Usage:
@@ -76,37 +76,68 @@ public class HealedReplaceWorkflow {
         }
     }
 
+    private static final String USAGE =
+            "Usage:\n"
+          + "  Single file: <input.gml> <database.db> [<output.gml>]\n"
+          + "  Batch mode:  <inputFolder> <database.db> [<outputFolder>]\n"
+          + "  Auto mode:   <database.db> <inputFolder> <outputFolder> --auto";
+
     public static void main(String[] args) {
         try {
-            RunMode mode = RunMode.detect(args);
-            if (mode == null) {
-                logger.error("No arguments provided.");
-                logger.error("Usage:");
-                logger.error("  Single file: <input.gml> <database.db> [<output.gml>]");
-                logger.error("  Batch mode:  <inputFolder> <database.db> [<outputFolder>]");
-                logger.error("  Auto mode:   <database.db> <inputFolder> <outputFolder> --auto");
-                System.exit(1);
-                return;
-            }
-            switch (mode) {
-                case AUTO_BATCH -> runBatchFromDatabase(
-                        args[0], Paths.get(args[1]), Paths.get(args[2]));
-                case BATCH_FOLDER -> {
-                    Path outputFolder = args.length >= 3 ? Paths.get(args[2]) : Paths.get(args[0]);
-                    runBatchMode(Paths.get(args[0]), args[1], outputFolder);
-                }
-                case SINGLE_FILE -> {
-                    Path inputPath = Paths.get(args[0]);
-                    Path outputPath = args.length >= 3
-                            ? Paths.get(args[2])
-                            : inputPath.getParent().resolve(generateOutputFilename(inputPath.getFileName().toString()));
-                    runSingleFile(inputPath, args[1], outputPath);
-                }
-            }
+            run(args);
+        } catch (IllegalArgumentException e) {
+            logger.error(e.getMessage());
+            System.exit(1);
         } catch (Exception e) {
             logger.error("Error during workflow: {}", e.getMessage(), e);
             System.exit(1);
         }
+    }
+
+    /**
+     * Führt den Workflow programmatisch aus (kein {@code System.exit}) — Einstiegspunkt für die
+     * GUI ({@link de.mpsc.sql2gml.gui.Sql2GmlGui}). Wirft statt zu beenden; der Aufrufer entscheidet,
+     * wie ein Fehler dem Nutzer angezeigt wird. Verhalten identisch zu {@link #main(String[])}.
+     */
+    public static void run(String[] args) throws Exception {
+        RunMode mode = RunMode.detect(args);
+        if (mode == null) {
+            throw new IllegalArgumentException("No arguments provided.\n" + USAGE);
+        }
+        switch (mode) {
+            case AUTO_BATCH -> runBatchFromDatabase(
+                    args[0], Paths.get(args[1]), Paths.get(args[2]));
+            case BATCH_FOLDER -> {
+                Path outputFolder = args.length >= 3 ? Paths.get(args[2]) : Paths.get(args[0]);
+                runBatchMode(Paths.get(args[0]), args[1], outputFolder);
+            }
+            case SINGLE_FILE -> {
+                Path inputPath = Paths.get(args[0]);
+                Path outputPath = args.length >= 3
+                        ? Paths.get(args[2])
+                        : inputPath.getParent().resolve(generateOutputFilename(inputPath.getFileName().toString()));
+                runSingleFile(inputPath, args[1], outputPath);
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fortschritts-Hook (optional, für die GUI) — im CLI-Betrieb bleibt der
+    // Listener null und die Aufrufe sind No-Ops.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public interface ProgressListener {
+        /** Wird bei Batch-Modi vor jeder Datei aufgerufen. */
+        default void onFileStart(int fileIndex, int totalFiles, String filename) {}
+        /** Wird nach jedem gelesenen CityGML-Feature aufgerufen (für eine Live-Zählung). */
+        default void onFeature(int featuresRead) {}
+    }
+
+    private static volatile ProgressListener progressListener;
+
+    /** Muss vor {@link #run(String[])} gesetzt werden; {@code null} deaktiviert den Hook wieder. */
+    public static void setProgressListener(ProgressListener listener) {
+        progressListener = listener;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -166,7 +197,12 @@ public class HealedReplaceWorkflow {
         CityGMLContext context = CityGMLContext.newInstance();
         Map<String, de.mpsc.sql2gml.model.Building> buildingIndex = loadBuildingIndex(databasePath);
 
+        int fileIndex = 0;
         for (File gmlFile : gmlFiles) {
+            fileIndex++;
+            if (progressListener != null) {
+                progressListener.onFileStart(fileIndex, gmlFiles.length, gmlFile.getName());
+            }
             Path outputFile = outputFolder.resolve(generateOutputFilename(gmlFile.getName()));
             logger.info("Processing: {}", gmlFile.getName());
             try {
@@ -256,6 +292,9 @@ public class HealedReplaceWorkflow {
             while (reader.hasNext()) {
                 AbstractFeature feature = reader.next();
                 stats.featuresRead++;
+                if (progressListener != null) {
+                    progressListener.onFeature(stats.featuresRead);
+                }
 
                 if (feature instanceof Building gmlBuilding) {
                     String buildingId = gmlBuilding.getId();
@@ -266,7 +305,7 @@ public class HealedReplaceWorkflow {
                         stats.buildingsUnchanged++;
                         logger.debug("Unchanged building: {}", buildingId);
                     } else if (!isFullyValid(dbBuilding, gmlBuilding)) {
-                        // Valid-Gate: Original-Geometrie vollstaendig erhalten.
+                        // Valid-Gate: Original-Geometrie vollständig erhalten.
                         stats.buildingsSkippedInvalid++;
                         logger.warn("Building {} is not fully valid in DB — original geometry preserved",
                                 buildingId);
@@ -368,7 +407,7 @@ public class HealedReplaceWorkflow {
     // Valid-Gate
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Prueft die gesamte Hierarchie eines DB-Buildings auf Validitaet (Valid-Gate, siehe Doku.md). */
+    /** Prüft die gesamte Hierarchie eines DB-Buildings auf Validität (Valid-Gate, siehe Doku.md). */
     private static boolean isFullyValid(de.mpsc.sql2gml.model.Building dbBuilding, Building gmlBuilding) {
         if (!dbBuilding.isValid()) return false;
         for (de.mpsc.sql2gml.model.BuildingPart part : dbBuilding.getBuildingParts()) {
@@ -386,19 +425,19 @@ public class HealedReplaceWorkflow {
 
         // Solid-Merge-Gate: der Healer ist bei Party-Wall-Merges/-Splits (mehrere Original-
         // BuildingParts zu einem Solid verschmolzen, oder ein Teil in mehrere Solids
-        // aufgespalten) noch nicht ausgereift genug — beobachtete Faelle mit sichtbar
-        // kaputter Geometrie (fehlende Waende, schwebendes Dach). Bis der Healer-Code dafuer
+        // aufgespalten) noch nicht ausgereift genug — beobachtete Fälle mit sichtbar
+        // kaputter Geometrie (fehlende Wände, schwebendes Dach). Bis der Healer-Code dafür
         // reif ist, akzeptieren wir nur eine 1:1-Zuordnung zwischen DB- und GML-BuildingParts,
         // in BEIDEN Richtungen:
         //   DB → GML: jede von der Healer-DB neu vergebene PartIdGml ohne bestehende
         //             Entsprechung disqualifiziert das gesamte Building.
-        //   GML → DB: jeder bestehende GML-Part, fuer den die Healer-DB ueberhaupt KEINE Zeile
+        //   GML → DB: jeder bestehende GML-Part, für den die Healer-DB überhaupt KEINE Zeile
         //             mehr liefert (z.B. ein Anbau, der beim Party-Wall-Merge/-Split still-
         //             schweigend nicht mehr ausgegeben wird), disqualifiziert ebenfalls das
-        //             gesamte Building — sonst wuerde replaceBuilding() diesen Part klaglos als
-        //             "vom Healer weggelassen" loeschen (siehe Doku.md, 2026-09-02 nachgetragen).
-        // In beiden Faellen bleibt die Original-Geometrie des GESAMTEN Buildings unangetastet
-        // (kein Teil-Ersatz, siehe Valid-Gate-Begruendung oben: Risiko SHELL_NOT_CLOSED).
+        //             gesamte Building — sonst würde replaceBuilding() diesen Part klaglos als
+        //             "vom Healer weggelassen" löschen (siehe Doku.md, 2026-09-02 nachgetragen).
+        // In beiden Fällen bleibt die Original-Geometrie des GESAMTEN Buildings unangetastet
+        // (kein Teil-Ersatz, siehe Valid-Gate-Begründung oben: Risiko SHELL_NOT_CLOSED).
         Set<String> gmlPartIds = new HashSet<>();
         if (gmlBuilding.isSetBuildingParts()) {
             for (BuildingPartProperty partProp : gmlBuilding.getBuildingParts()) {
@@ -463,9 +502,9 @@ public class HealedReplaceWorkflow {
                 // Existierendes GML-BuildingPart in-place ersetzen
                 target = gmlPartsById.get(partGmlId);
             } else {
-                // Solid-Merge-Gate (siehe isFullyValid) haette dieses Building bereits vorher
-                // aussortiert — ein Erreichen dieses Zweigs waere ein Gate/Logik-Widerspruch.
-                // Defensiv ueberspringen statt einen unreifen Healer-Merge-Solid zu schreiben.
+                // Solid-Merge-Gate (siehe isFullyValid) hätte dieses Building bereits vorher
+                // aussortiert — ein Erreichen dieses Zweigs wäre ein Gate/Logik-Widerspruch.
+                // Defensiv überspringen statt einen unreifen Healer-Merge-Solid zu schreiben.
                 logger.error("Building {}: dbPart references unknown PartIdGml '{}' despite "
                         + "Solid-Merge-Gate — skipping this part", gmlBuilding.getId(), partGmlId);
                 continue;
@@ -481,7 +520,7 @@ public class HealedReplaceWorkflow {
             appendBoundaries(target, dbPart, targetGeomIds, stats, dbBuilding.getBuildingIdGml());
         }
 
-        // ── 3. Ueberholte GML-Parts entfernen (vom Healer in der DB weggelassen) ──
+        // ── 3. Überholte GML-Parts entfernen (vom Healer in der DB weggelassen) ──
         if (gmlBuilding.isSetBuildingParts()) {
             int before = gmlBuilding.getBuildingParts().size();
             gmlBuilding.getBuildingParts().removeIf(partProp -> {
@@ -552,7 +591,7 @@ public class HealedReplaceWorkflow {
 
             target.getBoundaries().add(new AbstractSpaceBoundaryProperty(gmlSurface));
 
-            // Gezaehlt wird die DB-seitige Triangulierung, unabhaengig vom Ausgabe-GeometryMode.
+            // Gezählt wird die DB-seitige Triangulierung, unabhängig vom Ausgabe-GeometryMode.
             boolean tin = dbGeometry.isTriangulatedSurface();
             stats.surfacesWritten++;
             if (tin) {
@@ -563,7 +602,7 @@ public class HealedReplaceWorkflow {
             }
             stats.count(dbSurface.getSurfaceTypeId(), tin);
 
-            // Triangulierte WAENDE blockieren spaetere LoD3-Fenstereinbau, darum einzeln protokolliert.
+            // Triangulierte WÄNDE blockieren spätere LoD3-Fenstereinbau, darum einzeln protokolliert.
             if (tin && dbSurface.getSurfaceTypeId() == SURFACE_TYPE_WALL) {
                 stats.buildingsWithTinWall.add(buildingIdGml);
                 logger.warn("Triangulated WALL {} in building {} — blocks clean LoD3 window insertion",
@@ -581,7 +620,7 @@ public class HealedReplaceWorkflow {
         }
     }
 
-    /** Erstellt die passende citygml4j-Klasse fuer den SurfaceTypeId aus der DB (0=None→WallSurface). */
+    /** Erstellt die passende citygml4j-Klasse für den SurfaceTypeId aus der DB (0=None→WallSurface). */
     private static AbstractThematicSurface createBoundarySurface(de.mpsc.sql2gml.model.Surface dbSurface) {
         String id = dbSurface.getSurfaceIdGml();
         int typeId = dbSurface.getSurfaceTypeId();
@@ -598,16 +637,16 @@ public class HealedReplaceWorkflow {
         return surface;
     }
 
-    /** gml:name je Flaechentyp — die LoD2-Quelldaten benennen jede Flaeche strikt nach ihrem Typ
-     * (LOD2_Wall/LOD2_Roof/LOD2_Ground, ueber zwei unabhaengige Kacheln mit insgesamt ~110.000
-     * Flaechen ohne eine einzige Ausnahme bestaetigt, 2026-09-02). Der Name laesst sich daher rein
+    /** gml:name je Flächentyp — die LoD2-Quelldaten benennen jede Flaeche strikt nach ihrem Typ
+     * (LOD2_Wall/LOD2_Roof/LOD2_Ground, über zwei unabhängige Kacheln mit insgesamt ~110.000
+     * Flächen ohne eine einzige Ausnahme bestaetigt, 2026-09-02). Der Name lässt sich daher rein
      * aus SurfaceTypeId ableiten statt aus der DB gelesen zu werden — die DB kennt gml:name gar
      * nicht (siehe Doku.md, Tabelle Surfaces). */
     private static String gmlNameForType(int surfaceTypeId) {
         return switch (surfaceTypeId) {
             case TYPE_GROUND -> "LOD2_Ground";
             case TYPE_ROOF   -> "LOD2_Roof";
-            default          -> "LOD2_Wall"; // TYPE_WALL, und Fallback fuer 0=None (siehe oben)
+            default          -> "LOD2_Wall"; // TYPE_WALL, und Fallback für 0=None (siehe oben)
         };
     }
 
@@ -618,7 +657,7 @@ public class HealedReplaceWorkflow {
     /** Eine ausgabefertige Geometrie zusammen mit der gml:id, unter der das Solid sie referenziert. */
     private record IdentifiedSurface(String id, AbstractSurface surface) {}
 
-    /** Baut alle GML-Geometrien fuer EINE DB-SurfaceGeometry (1, oder N Polygone im ALWAYS_POLYGON-Modus). */
+    /** Baut alle GML-Geometrien für EINE DB-SurfaceGeometry (1, oder N Polygone im ALWAYS_POLYGON-Modus). */
     private static List<IdentifiedSurface> buildGeometries(
             de.mpsc.sql2gml.model.SurfaceGeometry dbGeometry) {
 
@@ -649,7 +688,7 @@ public class HealedReplaceWorkflow {
         return result;
     }
 
-    /** Baut ein gml:Polygon (PosList Index 0 = Aussenring, >0 = Loecher); null ohne Aussenring. */
+    /** Baut ein gml:Polygon (PosList Index 0 = Außenring, >0 = Löcher); null ohne Außenring. */
     private static org.xmlobjects.gml.model.geometry.primitives.Polygon buildGmlPolygon(
             de.mpsc.sql2gml.model.SurfaceGeometry dbGeometry) {
 
@@ -678,7 +717,7 @@ public class HealedReplaceWorkflow {
         return gmlPolygon;
     }
 
-    /** Baut eine gml:TriangulatedSurface; jede PosList ist ein unabhaengiges geschlossenes Dreieck. */
+    /** Baut eine gml:TriangulatedSurface; jede PosList ist ein unabhängiges geschlossenes Dreieck. */
     private static TriangulatedSurface buildGmlTriangulatedSurface(
             de.mpsc.sql2gml.model.SurfaceGeometry dbGeometry) {
 
