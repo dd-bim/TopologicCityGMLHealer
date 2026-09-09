@@ -61,7 +61,7 @@ Ergebnis: `target/sql2gml-complete.jar` — ein eigenständiges JAR mit allen Ab
 
 ## Desktop-GUI (.exe)
 
-Für Nutzung ohne CMD/PowerShell: `sql2gml.zip` entpacken, `sql2gml.exe` doppelklicken — kein Java nötig, Laufzeit ist eingebaut.
+**→ [dist/sql2gml.zip](dist/sql2gml.zip) herunterladen**, entpacken, `sql2gml.exe` doppelklicken — kein Java, kein CMD nötig, Laufzeit ist eingebaut.
 
 Auswahl in der Oberfläche: CityGML-Datei/-Ordner, Healer-Datenbank (.db), optional eine Ausgabedatei/-ordner, Checkbox für die PolygonOnly-Variante (CityDoctor-Workaround).
 
