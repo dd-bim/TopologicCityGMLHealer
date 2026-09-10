@@ -263,7 +263,7 @@
       <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3 L6 21 M6 21 L16 21 M6 3 L14 4.5 L14 21 M14 12 A5 5 0 0 0 14 12.01"/></svg></div>
         <h4>Türen</h4><p>Mindestens die Eingangstür im Erdgeschoss. Fehlt in den Quelldaten jede Türinformation, setzt eine Ersatztür-Regel eine Tür an der breitesten EG-Wand.</p></div>
       <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16"/><path d="M12 4 L12 20 M4 12 L20 12"/></svg></div>
-        <h4>Fenster</h4><p>Auf allen Geschossen inkl. Keller, nach den im Modul hinterlegten Abständen und Maßen. Hinter einem Anbau verdeckte Wandabschnitte bleiben bewusst fensterlos.</p></div>
+        <h4>Fenster</h4><p>Auf allen Geschossen inkl. Keller, nach den im Modul hinterlegten Abständen und Maßen. Hinter einem Anbau verdeckte Wandabschnitte bleiben bewusst fensterlos. Kellerfenster werden links und rechts unter jeder Tür ausgespart (0,40 m je Seite) — dort liegt die kleine Außentreppe zur Tür.</p></div>
       <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4 L4 20 M4 15 L15 15 M15 15 L15 9 M15 9 L20 9 M15 9 L15 4"/></svg></div>
         <h4>Balkone</h4><p>Wenn das Modul ein Balkon-Muster vorsieht, inkl. Balkontür — als eigenständiges Anbau-Element, nicht Teil der Wandhülle.</p></div>
       <div class="fcard"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 14 L12 4 L21 14 Z"/><rect x="8.2" y="9.3" width="4.2" height="3.6"/></svg></div>
@@ -438,6 +438,7 @@ java -cp target/lod2-zu-lod3-pipeline.jar  de.mpsc.lod2tolod3.RoofWindowGenerato
       <li><strong>Erweiterte Optionen</strong> (aufklappbar): einzelne Pipeline-Schritte abwählen, siehe unten.</li>
       <li><strong>Konvertierung starten</strong> — Fortschrittsbalken mit echten Werten und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.</li>
     </ol>
+    <p><strong>Eingabeprüfung beim Start:</strong> Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…“ ist keine .gml-Datei.“ ab, wenn die Eingabe nicht auf <span class="mono">.gml</span> endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige <span class="mono">.gml</span>-Datei enthält; sonstige (sichtbare) Nicht-<span class="mono">.gml</span>-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen“ ins Log geschrieben. Versteckte Dateien und Unterordner lösen keinen Hinweis aus.</p>
     <h3>Erweiterte Optionen: einzelne Schritte abwählen</h3>
     <p>Alle sechs optionalen Schritte (Keller, Geschosse, Türen, Fenster, Balkone, Dachfenster) sind per Häkchen einzeln abwählbar, Standard ist „alle an“. Die Häkchen bilden eine kleine Hierarchie, kein Satz von sechs unabhängigen Schaltern:</p>
     <div class="outcomes">
@@ -699,7 +700,8 @@ D:\Tools\val3dity-win64\val3dity.exe cityjson_out/output.json">Kopieren</button>
       </details>
       <details>
         <summary><span class="num">06</span><span class="tt">WindowGenerator (5b)</span><span class="arrow">▸</span></summary>
-        <div class="body"><p>Fenster auf Geschoss-Außenwänden (TIC-Methode), max. 1 Reihe pro Wand und Geschoss. Enthält u. a. <span class="mono">openingInsideWallTopClearance2D</span>/<span class="mono">openingInsideWallSideTopClearance2D</span> (2 cm Sicherheitsabstand oben bzw. an beiden Seitenkanten — Ray-Casting ist an Randpunkten mehrdeutig) und <span class="mono">wallContourEntersOpening</span> (erkennt eine „M“-förmige Wandkontur, die mitten in eine sonst gültige Öffnung hineinragt).</p></div>
+        <div class="body"><p>Fenster auf Geschoss-Außenwänden (TIC-Methode), max. 1 Reihe pro Wand und Geschoss. Enthält u. a. <span class="mono">openingInsideWallTopClearance2D</span>/<span class="mono">openingInsideWallSideTopClearance2D</span> (2 cm Sicherheitsabstand oben bzw. an beiden Seitenkanten — Ray-Casting ist an Randpunkten mehrdeutig) und <span class="mono">wallContourEntersOpening</span> (erkennt eine „M“-förmige Wandkontur, die mitten in eine sonst gültige Öffnung hineinragt).</p>
+        <p><strong>Kellerfenster-Freihaltung unter Türen:</strong> Im <span class="mono">BA</span>-Geschoss werden die verfügbaren Wandabschnitte um jede Tür herum um <span class="mono">BASEMENT_STAIR_CLEARANCE</span> (0,40 m je Seite) beschnitten — Platz für die kleine Außentreppe zur Tür. Türen liegen im GF-Segment, Kellerfenster im BA-Segment; da beide keine gemeinsame ID tragen, erfolgt die Zuordnung geometrisch über die gemeinsame Grundriss-Linie (<span class="mono">baSectionsExcludingDoorZones</span>). Rein subtraktiv — GF/UF/Dach unberührt, val3dity und CityDoctor2 exakt unverändert. Grenze: Fallback-Türen (Schritt 4d) laufen nach den Fenstern, dort bleibt der Keller unbeschnitten.</p></div>
       </details>
       <details>
         <summary><span class="num">07</span><span class="tt">RoofWindowGenerator (5d)</span><span class="arrow">▸</span></summary>

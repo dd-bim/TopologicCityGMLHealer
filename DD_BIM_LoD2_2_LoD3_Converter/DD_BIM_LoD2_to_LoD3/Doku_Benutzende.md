@@ -11,7 +11,7 @@ Aus einer einfachen Gebäudehülle (Wände, Dach, Grundfläche) wird pro Gebäud
 - **Keller** — unterhalb der Geländeoberfläche, inkl. Kellerwänden und -boden, wenn das Modul einen Keller vorsieht.
 - **Geschosse** — die Gebäudehülle wird in Erdgeschoss, Obergeschosse und ggf. Dachgeschoss unterteilt, mit eigenen Böden und Decken je Geschoss.
 - **Türen** — mindestens die Eingangstür im Erdgeschoss.
-- **Fenster** — auf allen Geschossen inkl. Keller, nach den im Modul hinterlegten Abständen und Maßen; auf verdeckten Wandabschnitten (hinter einem Anbau) werden bewusst keine platziert.
+- **Fenster** — auf allen Geschossen inkl. Keller, nach den im Modul hinterlegten Abständen und Maßen; auf verdeckten Wandabschnitten (hinter einem Anbau) werden bewusst keine platziert. Kellerfenster werden links und rechts unter jeder Tür ausgespart (0,40 m Puffer je Seite) — dort liegt in der Realität die kleine Außentreppe zur Tür.
 - **Balkone** — wenn das Modul ein Balkon-Muster vorsieht, inkl. Balkontür.
 - **Dachfenster** — auf geneigten Dachflächen, wenn das Modul welche vorsieht.
 

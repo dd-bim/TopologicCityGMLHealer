@@ -34,6 +34,11 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
     /** Maximaler Window-to-Wall Ratio (60 %). */
     private static final double MAX_WWR = 0.60;
 
+    /** Puffer je Seite einer Tuer, in dem im Keller-Wandsegment (BA) keine Fenster platziert
+     * werden — Platz fuer die kleine Aussentreppe, die den Hoehensprung vom herausragenden
+     * Kellerdeckel zur Tuer ueberbrueckt (siehe Doku.md, "Kellerfenster unter Tueren"). */
+    private static final double BASEMENT_STAIR_CLEARANCE = 0.40;
+
     public static void main(String[] args) {
         WindowGenerator gen = new WindowGenerator();
         try {
@@ -181,10 +186,12 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
         /** Gelaendehoehe (TIC), unterhalb derer BA-Reihen uebersprungen werden; NaN fuer GF/UF. */
         double terrainZ(WallSurface wall);
 
-        /** Horizontal verfuegbare Wandabschnitte (GF: um Tueren herum; UF/BA: ganze Wand). */
+        /** Horizontal verfuegbare Wandabschnitte (GF: um Tueren der eigenen Wand herum; UF: ganze
+         * Wand; BA: ganze Wand abzueglich der Treppen-Freihaltezonen unter den Tueren des
+         * GF-Geschwistersegments — dafuer wird {@code allWallsInBuilding} gebraucht). */
         List<double[]> sections(WallSurface wall, Point3D edgeStart,
                 double dirX, double dirY, double wallLength,
-                ModuleParameters.WindowParams wp);
+                ModuleParameters.WindowParams wp, List<WallSurface> allWallsInBuilding);
     }
 
     /** Strategie fuer GF- und UF-Geschosse. */
@@ -207,7 +214,7 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
         @Override
         public List<double[]> sections(WallSurface wall, Point3D edgeStart,
                 double dirX, double dirY, double wallLength,
-                ModuleParameters.WindowParams wp) {
+                ModuleParameters.WindowParams wp, List<WallSurface> allWallsInBuilding) {
             return extractFreeSections(wall, edgeStart, dirX, dirY, wallLength, wp);
         }
     };
@@ -231,8 +238,9 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
         @Override
         public List<double[]> sections(WallSurface wall, Point3D edgeStart,
                 double dirX, double dirY, double wallLength,
-                ModuleParameters.WindowParams wp) {
-            return List.of(new double[]{0, wallLength}); // gesamte Wand
+                ModuleParameters.WindowParams wp, List<WallSurface> allWallsInBuilding) {
+            return baSectionsExcludingDoorZones(
+                    wall, edgeStart, dirX, dirY, wallLength, allWallsInBuilding);
         }
     };
 
@@ -343,7 +351,8 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
         }
 
         // 5. WallContext zusammenstellen
-        List<double[]> sections = strategy.sections(wall, edge.start(), dirX, dirY, edge.wallLength(), wp);
+        List<double[]> sections = strategy.sections(
+                wall, edge.start(), dirX, dirY, edge.wallLength(), wp, allWallsInBuilding);
         WallContext ctx = new WallContext(wall, geschoss, wp, open,
                 edge.start(), dirX, dirY, edge.wallLength(),
                 edge.zMin(), effectiveFloorZ, usableHeight, terrainZ, sections, coveredSpans);
@@ -640,6 +649,102 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
             sections.add(new double[]{cursor, wallLength});
         }
 
+        return sections;
+    }
+
+    /** Max. senkrechter Abstand, bis zu dem eine GF-Unterkante als "auf derselben Grundriss-Kante
+     * wie diese BA-Wand liegend" gilt (unabh. digitalisierte LoD2-Flaechen treffen sich nur
+     * ~cm-genau, siehe Doku.md). */
+    private static final double BA_GF_EDGE_MATCH_PERP_TOL = 0.10;
+    /** Max. |Kreuzprodukt der Einheitsrichtungen|, bis zu dem GF- und BA-Unterkante als parallel gelten. */
+    private static final double BA_GF_EDGE_MATCH_PARALLEL_TOL = 0.05;
+
+    /** BA-Wandabschnitte fuer die Fensterplatzierung: die gesamte Wand, abzueglich der Zonen unter
+     * den Tueren der GF-Wandsegmente auf DERSELBEN Grundriss-Kante, jeweils um
+     * {@link #BASEMENT_STAIR_CLEARANCE} nach links und rechts erweitert (Platz fuer die
+     * Aussentreppe, die den Hoehensprung zur Tuer ueberbrueckt). Kellerwaende und GF-Segmente
+     * teilen keine gemeinsame ID (BasementGenerator erzeugt Kellerwaende pro Grundriss-Kante,
+     * StoreyGenerator schneidet die Originalwaende) — die Zuordnung erfolgt daher geometrisch
+     * ueber die gemeinsame Grundriss-Linie (identisch zum Prinzip in
+     * {@code BasementGenerator.findWindowPreferenceForEdge}). Gibt es keine passende Tuer, wird
+     * die ganze Wand als ein Abschnitt zurueckgegeben (unveraendertes Verhalten). Ist die Wand
+     * komplett gesperrt, liefert die Methode eine leere Liste — die Wand bekommt dann keine
+     * Kellerfenster. */
+    private static List<double[]> baSectionsExcludingDoorZones(WallSurface baWall,
+            Point3D edgeStart, double dirX, double dirY, double wallLength,
+            List<WallSurface> allWallsInBuilding) {
+
+        if (allWallsInBuilding == null) {
+            return List.of(new double[]{0, wallLength});
+        }
+
+        List<double[]> exclusions = new ArrayList<>();
+        for (WallSurface w : allWallsInBuilding) {
+            if (!"GF".equals(CityGmlUtils.getStringAttribute(w, "Geschoss"))) continue;
+            boolean anyDoor = w.getFillingSurfaces().stream()
+                    .anyMatch(fsp -> fsp.getObject() instanceof DoorSurface);
+            if (!anyDoor) continue;
+
+            Polygon gfPoly = BuildingQueryUtils.getWallPolygon(w);
+            if (gfPoly == null) continue;
+            GeometryUtils.BottomEdge gfEdge = GeometryUtils.findBottomEdge(
+                    GeometryUtils.removeClosingPoint(GeometryUtils.toPoints(gfPoly)));
+            if (gfEdge == null || gfEdge.wallLength() < 1e-6) continue;
+
+            // Liegt die GF-Unterkante auf derselben Grundriss-Linie wie diese BA-Wand?
+            double gdx = (gfEdge.end().x - gfEdge.start().x) / gfEdge.wallLength();
+            double gdy = (gfEdge.end().y - gfEdge.start().y) / gfEdge.wallLength();
+            if (Math.abs(dirX * gdy - dirY * gdx) > BA_GF_EDGE_MATCH_PARALLEL_TOL) continue;
+            double mx = (gfEdge.start().x + gfEdge.end().x) / 2.0 - edgeStart.x;
+            double my = (gfEdge.start().y + gfEdge.end().y) / 2.0 - edgeStart.y;
+            if (Math.abs(mx * -dirY + my * dirX) > BA_GF_EDGE_MATCH_PERP_TOL) continue;
+            double us = (gfEdge.start().x - edgeStart.x) * dirX + (gfEdge.start().y - edgeStart.y) * dirY;
+            double ue = (gfEdge.end().x - edgeStart.x) * dirX + (gfEdge.end().y - edgeStart.y) * dirY;
+            if (Math.max(us, ue) <= 0 || Math.min(us, ue) >= wallLength) continue;
+
+            // Tuer-Ecken auf die U-Achse DIESER BA-Wand projizieren (richtungs-robust auch bei
+            // entgegengesetzt gewickelten GF-/BA-Polygonen).
+            for (AbstractFillingSurfaceProperty fsp : w.getFillingSurfaces()) {
+                AbstractFillingSurface fs = fsp.getObject();
+                if (!(fs instanceof DoorSurface)
+                        || fs.getLod3MultiSurface() == null
+                        || fs.getLod3MultiSurface().getObject() == null) continue;
+
+                double uMin = Double.POSITIVE_INFINITY, uMax = Double.NEGATIVE_INFINITY;
+                for (var member : fs.getLod3MultiSurface().getObject().getSurfaceMember()) {
+                    if (!(member.getObject() instanceof Polygon doorPoly)) continue;
+                    for (Point3D p : GeometryUtils.removeClosingPoint(GeometryUtils.toPoints(doorPoly))) {
+                        double u = (p.x - edgeStart.x) * dirX + (p.y - edgeStart.y) * dirY;
+                        uMin = Math.min(uMin, u);
+                        uMax = Math.max(uMax, u);
+                    }
+                }
+                if (uMin <= uMax) {
+                    exclusions.add(new double[]{
+                            uMin - BASEMENT_STAIR_CLEARANCE, uMax + BASEMENT_STAIR_CLEARANCE});
+                }
+            }
+        }
+
+        if (exclusions.isEmpty()) {
+            return List.of(new double[]{0, wallLength});
+        }
+
+        exclusions.sort((a, b) -> Double.compare(a[0], b[0]));
+
+        List<double[]> sections = new ArrayList<>();
+        double cursor = 0;
+        for (double[] excl : exclusions) {
+            double left = Math.max(0, excl[0]);
+            double right = Math.min(wallLength, excl[1]);
+            if (left > cursor + 0.01) {
+                sections.add(new double[]{cursor, left});
+            }
+            cursor = Math.max(cursor, right);
+        }
+        if (cursor < wallLength - 0.01) {
+            sections.add(new double[]{cursor, wallLength});
+        }
         return sections;
     }
 

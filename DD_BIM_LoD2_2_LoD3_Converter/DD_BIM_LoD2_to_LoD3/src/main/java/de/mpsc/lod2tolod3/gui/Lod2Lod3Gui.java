@@ -8,6 +8,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -396,6 +397,22 @@ public final class Lod2Lod3Gui {
             return;
         }
 
+        // Sicherstellen, dass wirklich CityGML (.gml) verarbeitet wird.
+        if (single) {
+            String name = inputPath.getFileName().toString();
+            if (!hasGmlExtension(name)) {
+                JOptionPane.showMessageDialog(frame,
+                        "Die gewählte Datei „" + name + "“ ist keine .gml-Datei.",
+                        "Keine GML-Datei", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } else if (!folderHasGmlFile(inputPath)) {
+            JOptionPane.showMessageDialog(frame,
+                    "Im Ordner „" + inputPath.getFileName() + "“ wurden keine .gml-Dateien gefunden.",
+                    "Keine GML-Dateien", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         List<String> args = new ArrayList<>();
         args.add(input);
         args.add(json);
@@ -408,6 +425,16 @@ public final class Lod2Lod3Gui {
 
         setFormEnabled(false);
         logArea.setText("");
+        if (!single) {
+            List<String> skipped = nonGmlFileNames(inputPath);
+            int shown = Math.min(skipped.size(), 20);
+            for (int i = 0; i < shown; i++) {
+                appendLog("Hinweis: „" + skipped.get(i) + "“ ist keine .gml-Datei und wird übersprungen.");
+            }
+            if (skipped.size() > shown) {
+                appendLog("Hinweis: … und " + (skipped.size() - shown) + " weitere Nicht-.gml-Dateien.");
+            }
+        }
         progressBar.setIndeterminate(true);
         progressBar.setString("Läuft…");
         statusLabel.setText("Verarbeitung gestartet…");
@@ -512,6 +539,30 @@ public final class Lod2Lod3Gui {
     // ─────────────────────────────────────────────────────────────────────────
     // Log-Anzeige
     // ─────────────────────────────────────────────────────────────────────────
+
+    /** Endet der Dateiname (Groß-/Kleinschreibung egal) auf {@code .gml}? */
+    private static boolean hasGmlExtension(String name) {
+        return name.toLowerCase().endsWith(".gml");
+    }
+
+    /** true, wenn der Ordner mindestens eine {@code .gml}-Datei enthält. */
+    private static boolean folderHasGmlFile(Path folder) {
+        File[] gml = folder.toFile().listFiles(f -> f.isFile() && hasGmlExtension(f.getName()));
+        return gml != null && gml.length > 0;
+    }
+
+    /** Sichtbare Nicht-{@code .gml}-Dateien im Ordner (für den „wird übersprungen"-Hinweis).
+     *  Versteckte Dateien (Thumbs.db, desktop.ini …) bleiben außen vor, damit der Hinweis nicht
+     *  bei jedem Lauf durch Betriebssystem-Beiwerk ausgelöst wird. Unterordner zählen nicht mit. */
+    private static List<String> nonGmlFileNames(Path folder) {
+        File[] others = folder.toFile().listFiles(
+                f -> f.isFile() && !f.isHidden() && !hasGmlExtension(f.getName()));
+        if (others == null) return List.of();
+        List<String> names = new ArrayList<>();
+        for (File f : others) names.add(f.getName());
+        names.sort(String::compareToIgnoreCase);
+        return names;
+    }
 
     /** Zaehlt CityGML-Features (Vorab-Scan fuer einen echten X/Y-Balken bei Einzeldateien).
      *  Gleiche Annahme wie beim sql2gml-Pendant: das Member-Tag steht auf einer eigenen Zeile —

@@ -88,6 +88,8 @@ Für Nutzende ohne CMD/PowerShell/IDE — z. B. Projektpartner — gibt es eine 
 6. **Erweiterte Optionen** (aufklappbar): einzelne Pipeline-Schritte abwählen, siehe unten.
 7. **Konvertierung starten** — Fortschrittsbalken (bei Batch mit echtem „Datei X von Y", bei Einzeldatei mit echtem „Gebäude X von Y" nach kurzem Vorab-Zähllauf) und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.
 
+**Eingabeprüfung beim Start:** Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…" ist keine .gml-Datei." ab, wenn die Eingabe nicht auf `.gml` endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige `.gml`-Datei enthält; sonstige (sichtbare) Nicht-`.gml`-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen" ins Log geschrieben. Versteckte Dateien (z. B. `Thumbs.db`) und Unterordner lösen keinen Hinweis aus.
+
 ### Erweiterte Optionen: einzelne Schritte abwählen
 
 Alle sechs optionalen Schritte (Keller, Geschosse, Türen, Fenster, Balkone, Dachfenster) sind per Häkchen einzeln abwählbar, Standard ist „alle an" (= identisch zum normalen Pipeline-Lauf, ungeöffnet verhält sich die GUI exakt wie ohne dieses Menü). Die Häkchen bilden eine kleine Hierarchie, kein Satz von sechs unabhängigen Schaltern:
