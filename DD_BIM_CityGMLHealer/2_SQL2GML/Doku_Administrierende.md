@@ -90,9 +90,11 @@ Für Nutzende ohne CMD/PowerShell/IDE — z. B. Projektpartner — gibt es eine 
 1. **Modus**: Einzelne Datei oder Ordner (Batch).
 2. **CityGML-Datei/Ordner**: die Eingabe.
 3. **Healer-Datenbank (.db)**: Pflichtfeld.
-4. **Ausgabedatei/-ordner** (optional): ohne Angabe gelten dieselben Standardwerte wie beim CLI-Aufruf (`<input>_new.gml` bzw. Suffix `_new`).
+4. **Ausgabedatei/-ordner** (optional): ohne Angabe gelten dieselben Standardwerte wie beim CLI-Aufruf (`<input>_new.gml` bzw. Suffix `_new`). Im Einzeldatei-Modus wird eine fehlende `.gml`-Endung am eingegebenen Dateinamen automatisch ergänzt.
 5. **Checkbox „Ohne TriangulatedSurface schreiben"**: entspricht `PolygonOnlyReplaceWorkflow`, siehe Benutzenden-Doku.
 6. **Konvertierung starten** — Fortschrittsbalken (bei Batch mit echtem „Datei X von Y", bei Einzeldatei mit echtem „Feature X von Y" nach kurzem Vorab-Zähllauf) und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.
+
+**Eingabeprüfung beim Start:** Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…" ist keine .gml-Datei." ab, wenn die Eingabe nicht auf `.gml` endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige `.gml`-Datei enthält; sonstige (sichtbare) Nicht-`.gml`-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen" ins Log geschrieben. Versteckte Dateien (z. B. `Thumbs.db`) und Unterordner lösen keinen Hinweis aus.
 
 Technische Details zur GUI (Bibliotheken, Architektur): siehe [Doku_Programmierende.md](Doku_Programmierende.md).
 

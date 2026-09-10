@@ -8,6 +8,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -252,12 +253,50 @@ public final class Sql2GmlGui {
         JFileChooser chooser = new JFileChooser();
         chooser.setFileSelectionMode(modeSingle.isSelected()
                 ? JFileChooser.FILES_ONLY : JFileChooser.DIRECTORIES_ONLY);
+        if (modeSingle.isSelected()) {
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CityGML (*.gml)", "gml"));
+        }
         int result = modeSingle.isSelected()
                 ? chooser.showSaveDialog(frame)
                 : chooser.showOpenDialog(frame);
         if (result == JFileChooser.APPROVE_OPTION) {
-            outputField.setText(chooser.getSelectedFile().getAbsolutePath());
+            String path = chooser.getSelectedFile().getAbsolutePath();
+            if (modeSingle.isSelected()) {
+                path = ensureGmlExtension(path);
+            }
+            outputField.setText(path);
         }
+    }
+
+    /** Ergänzt die Endung {@code .gml}, wenn der frei eingetippte Dateiname keine hat — sonst
+     *  schreibt der Workflow eine Datei ganz ohne Endung. Nur im Einzeldatei-Modus relevant;
+     *  im Batch-Modus ist das Feld ein Ordner. */
+    private static String ensureGmlExtension(String name) {
+        return hasGmlExtension(name) ? name : name + ".gml";
+    }
+
+    /** Endet der Dateiname (Groß-/Kleinschreibung egal) auf {@code .gml}? */
+    private static boolean hasGmlExtension(String name) {
+        return name.toLowerCase().endsWith(".gml");
+    }
+
+    /** true, wenn der Ordner mindestens eine {@code .gml}-Datei enthält. */
+    private static boolean folderHasGmlFile(Path folder) {
+        File[] gml = folder.toFile().listFiles(f -> f.isFile() && hasGmlExtension(f.getName()));
+        return gml != null && gml.length > 0;
+    }
+
+    /** Sichtbare Nicht-{@code .gml}-Dateien im Ordner (für den „wird übersprungen"-Hinweis).
+     *  Versteckte Dateien (Thumbs.db, desktop.ini …) bleiben außen vor, damit der Hinweis nicht
+     *  bei jedem Lauf durch Betriebssystem-Beiwerk ausgelöst wird. Unterordner zählen nicht mit. */
+    private static List<String> nonGmlFileNames(Path folder) {
+        File[] others = folder.toFile().listFiles(
+                f -> f.isFile() && !f.isHidden() && !hasGmlExtension(f.getName()));
+        if (others == null) return List.of();
+        List<String> names = new ArrayList<>();
+        for (File f : others) names.add(f.getName());
+        names.sort(String::compareToIgnoreCase);
+        return names;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -267,7 +306,7 @@ public final class Sql2GmlGui {
     private void startConversion() {
         String input = inputField.getText().trim();
         String db = dbField.getText().trim();
-        String output = outputField.getText().trim();
+        String rawOutput = outputField.getText().trim();
 
         if (input.isEmpty() || db.isEmpty()) {
             JOptionPane.showMessageDialog(frame,
@@ -290,6 +329,29 @@ public final class Sql2GmlGui {
             return;
         }
 
+        // Sicherstellen, dass wirklich CityGML (.gml) verarbeitet wird.
+        if (single) {
+            String name = inputPath.getFileName().toString();
+            if (!hasGmlExtension(name)) {
+                JOptionPane.showMessageDialog(frame,
+                        "Die gewählte Datei „" + name + "“ ist keine .gml-Datei.",
+                        "Keine GML-Datei", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } else if (!folderHasGmlFile(inputPath)) {
+            JOptionPane.showMessageDialog(frame,
+                    "Im Ordner „" + inputPath.getFileName() + "“ wurden keine .gml-Dateien gefunden.",
+                    "Keine GML-Dateien", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Einzeldatei-Modus: fehlende .gml-Endung am frei eingetippten Ausgabenamen ergänzen,
+        // damit garantiert eine .gml-Datei entsteht und keine Datei ohne Endung.
+        final String output = (single && !rawOutput.isEmpty()) ? ensureGmlExtension(rawOutput) : rawOutput;
+        if (!output.equals(rawOutput)) {
+            outputField.setText(output);
+        }
+
         List<String> args = new ArrayList<>();
         args.add(input);
         args.add(db);
@@ -303,6 +365,16 @@ public final class Sql2GmlGui {
 
         setFormEnabled(false);
         logArea.setText("");
+        if (!single) {
+            List<String> skipped = nonGmlFileNames(inputPath);
+            int shown = Math.min(skipped.size(), 20);
+            for (int i = 0; i < shown; i++) {
+                appendLog("Hinweis: „" + skipped.get(i) + "“ ist keine .gml-Datei und wird übersprungen.");
+            }
+            if (skipped.size() > shown) {
+                appendLog("Hinweis: … und " + (skipped.size() - shown) + " weitere Nicht-.gml-Dateien.");
+            }
+        }
         progressBar.setIndeterminate(true);
         progressBar.setString("Läuft…");
         statusLabel.setText("Verarbeitung gestartet…");

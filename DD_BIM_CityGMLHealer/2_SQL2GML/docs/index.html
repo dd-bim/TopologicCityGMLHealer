@@ -390,10 +390,11 @@ java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.legacy.CompleteWorkflow <gl
       <li><strong>Modus</strong>: Einzelne Datei oder Ordner (Batch).</li>
       <li><strong>CityGML-Datei/Ordner</strong>: die Eingabe.</li>
       <li><strong>Healer-Datenbank (.db)</strong>: Pflichtfeld.</li>
-      <li><strong>Ausgabedatei/-ordner</strong> (optional): ohne Angabe gelten dieselben Standardwerte wie beim CLI-Aufruf.</li>
+      <li><strong>Ausgabedatei/-ordner</strong> (optional): ohne Angabe gelten dieselben Standardwerte wie beim CLI-Aufruf. Im Einzeldatei-Modus wird eine fehlende <span class="mono">.gml</span>-Endung am eingegebenen Dateinamen automatisch ergänzt.</li>
       <li><strong>Checkbox „Ohne TriangulatedSurface schreiben“</strong>: entspricht <span class="mono">PolygonOnlyReplaceWorkflow</span>, siehe <em>Benutzende</em>.</li>
       <li><strong>Konvertierung starten</strong> — Fortschrittsbalken mit echten Werten und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.</li>
     </ol>
+    <p><strong>Eingabeprüfung beim Start:</strong> Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…“ ist keine .gml-Datei.“ ab, wenn die Eingabe nicht auf <span class="mono">.gml</span> endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige <span class="mono">.gml</span>-Datei enthält; sonstige (sichtbare) Nicht-<span class="mono">.gml</span>-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen“ ins Log geschrieben. Versteckte Dateien und Unterordner lösen keinen Hinweis aus.</p>
     <p>Technische Details zur GUI (Bibliotheken, Architektur): siehe <em>Programmierende</em>.</p>
   </section>
 
