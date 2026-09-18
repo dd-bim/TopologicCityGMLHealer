@@ -94,6 +94,8 @@ Für Nutzende ohne CMD/PowerShell/IDE — z. B. Projektpartner — gibt es eine 
 5. **Checkbox „Ohne TriangulatedSurface schreiben"**: entspricht `PolygonOnlyReplaceWorkflow`, siehe Benutzenden-Doku.
 6. **Konvertierung starten** — Fortschrittsbalken (bei Batch mit echtem „Datei X von Y", bei Einzeldatei mit echtem „Feature X von Y" nach kurzem Vorab-Zähllauf) und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.
 
+**Auswahldialoge:** Jeder „Durchsuchen“-Dialog öffnet sich im Ordner des aktuellen Feldeintrags. Ist das Feld leer, öffnet er sich im zuletzt gewählten Ordner, auch nach einem Neustart der Anwendung. Wer also zuerst die CityGML-Datei wählt, landet beim Datenbank- oder Ausgabe-Dialog direkt in deren Ordner.
+
 **Eingabeprüfung beim Start:** Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…" ist keine .gml-Datei." ab, wenn die Eingabe nicht auf `.gml` endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige `.gml`-Datei enthält; sonstige (sichtbare) Nicht-`.gml`-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen" ins Log geschrieben. Versteckte Dateien (z. B. `Thumbs.db`) und Unterordner lösen keinen Hinweis aus.
 
 Technische Details zur GUI (Bibliotheken, Architektur): siehe [Doku_Programmierende.md](Doku_Programmierende.md).

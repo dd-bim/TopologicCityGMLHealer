@@ -84,6 +84,16 @@ Das gilt in **beide Richtungen**: auch wenn umgekehrt ein bestehender Gebäudete
 
 ---
 
+## Prüfmeldungen von val3dity und CityDoctor2
+
+Was die Fehlercodes bedeuten, erklären die Werkzeuge selbst: [val3dity-Fehlerliste](https://val3dity.readthedocs.io/2.7.0/errors/) und [CityDoctor2-Prüfungen](https://transfer.hft-stuttgart.de/pages/citydoctor/citydoctorhomepage/de/requirements/). Für die Ausgabe von sql2gml gilt zusätzlich:
+
+- Wurde ein Gebäude nicht ersetzt (Valid-Gate oder Solid-Merge-Gate), steht im Log `Building … is not fully valid in DB — original geometry preserved`. Meldungen an diesem Gebäude stammen dann aus den Originaldaten.
+- `GE_S_NOT_CLOSED` an triangulierten Flächen (TIN) ist ein Fehlalarm von CityDoctor 3.18.2, siehe „Zwei Ausgabe-Varianten“.
+- Beide Werkzeuge prüfen die Hülle eines Gebäudes erst, wenn seine Flächen fehlerfrei sind. Heilt der Healer einen Flächenfehler, kann deshalb ein schon vorhandener Hüllenfehler zum ersten Mal gemeldet werden. Original und Ausgabe Gebäude für Gebäude vergleichen, nicht nur die Gesamtzahlen.
+
+---
+
 ## Bekannte fachliche Einschränkungen
 
 - **Triangulierte Wände erschweren nachgelagerte Bearbeitung.** Konnte der Healer eine Wand nicht eben bekommen und sie deshalb als TIN abgelegt, lässt sich dort später kein sauberes Fenster/Tür mehr einschneiden (z. B. in der nachgelagerten LoD2→LoD3-Pipeline) — die Fläche ist kein einzelnes Polygon mehr, sondern viele kleine Dreiecke.

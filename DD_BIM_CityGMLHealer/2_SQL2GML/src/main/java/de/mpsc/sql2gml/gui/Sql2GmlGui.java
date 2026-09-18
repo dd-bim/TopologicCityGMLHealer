@@ -228,7 +228,7 @@ public final class Sql2GmlGui {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void chooseInput() {
-        JFileChooser chooser = new JFileChooser();
+        JFileChooser chooser = newChooser(inputField);
         if (modeSingle.isSelected()) {
             chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
             chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CityGML (*.gml)", "gml"));
@@ -236,21 +236,64 @@ public final class Sql2GmlGui {
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         }
         if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            inputField.setText(chooser.getSelectedFile().getAbsolutePath());
+            File selected = chooser.getSelectedFile().getAbsoluteFile();
+            inputField.setText(selected.getPath());
+            rememberFolder(selected);
         }
     }
 
     private void chooseDatabase() {
-        JFileChooser chooser = new JFileChooser();
+        JFileChooser chooser = newChooser(dbField);
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
         chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("SQLite-Datenbank (*.db)", "db"));
         if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            dbField.setText(chooser.getSelectedFile().getAbsolutePath());
+            File selected = chooser.getSelectedFile().getAbsoluteFile();
+            dbField.setText(selected.getPath());
+            rememberFolder(selected);
         }
     }
 
-    private void chooseOutput() {
+    // Zuletzt benutzter Ordner, bleibt ueber Programmneustarts erhalten (Java Preferences, pro Benutzer).
+    private static final String PREF_LAST_DIR = "letzterOrdner";
+
+    /** Auswahldialog, der im Ordner des Feld-Eintrags startet, sonst im zuletzt benutzten Ordner. */
+    static JFileChooser newChooser(JTextField field) {
         JFileChooser chooser = new JFileChooser();
+        String text = field.getText().trim();
+        File parent = text.isEmpty() ? null : new File(text).getAbsoluteFile().getParentFile();
+        File start = parent != null && parent.isDirectory() ? parent : lastFolder();
+        if (start != null) chooser.setCurrentDirectory(start);
+        return chooser;
+    }
+
+    /** Merkt sich den Ordner, in dem die Auswahl liegt — bei Ordnern den uebergeordneten, damit
+     *  Nachbarordner (Kacheln, Datenbank, Ausgabe) beim naechsten Dialog direkt sichtbar sind. */
+    static void rememberFolder(File selected) {
+        File dir = selected.getAbsoluteFile().getParentFile();
+        if (dir == null) return;
+        try {
+            prefs().put(PREF_LAST_DIR, dir.getPath());
+        } catch (RuntimeException ignored) {
+            // Einstellungen nicht speicherbar (z. B. gesperrte Registry) — reine Komfortfunktion
+        }
+    }
+
+    static File lastFolder() {
+        try {
+            String path = prefs().get(PREF_LAST_DIR, null);
+            File dir = path == null ? null : new File(path);
+            return dir != null && dir.isDirectory() ? dir : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static java.util.prefs.Preferences prefs() {
+        return java.util.prefs.Preferences.userNodeForPackage(Sql2GmlGui.class);
+    }
+
+    private void chooseOutput() {
+        JFileChooser chooser = newChooser(outputField);
         chooser.setFileSelectionMode(modeSingle.isSelected()
                 ? JFileChooser.FILES_ONLY : JFileChooser.DIRECTORIES_ONLY);
         if (modeSingle.isSelected()) {
@@ -260,11 +303,13 @@ public final class Sql2GmlGui {
                 ? chooser.showSaveDialog(frame)
                 : chooser.showOpenDialog(frame);
         if (result == JFileChooser.APPROVE_OPTION) {
-            String path = chooser.getSelectedFile().getAbsolutePath();
+            File selected = chooser.getSelectedFile().getAbsoluteFile();
+            String path = selected.getPath();
             if (modeSingle.isSelected()) {
                 path = ensureGmlExtension(path);
             }
             outputField.setText(path);
+            rememberFolder(selected);
         }
     }
 

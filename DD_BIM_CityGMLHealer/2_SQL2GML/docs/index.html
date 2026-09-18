@@ -326,6 +326,16 @@
   </section>
 
   <section>
+    <h2>Prüfmeldungen von val3dity und CityDoctor2</h2>
+    <p>Was die Fehlercodes bedeuten, erklären die Werkzeuge selbst: <a href="https://val3dity.readthedocs.io/2.7.0/errors/">val3dity-Fehlerliste</a> und <a href="https://transfer.hft-stuttgart.de/pages/citydoctor/citydoctorhomepage/de/requirements/">CityDoctor2-Prüfungen</a>. Für die Ausgabe von sql2gml gilt zusätzlich:</p>
+    <ul>
+      <li>Wurde ein Gebäude nicht ersetzt (Valid-Gate oder Solid-Merge-Gate), steht im Log <span class="mono">Building … is not fully valid in DB — original geometry preserved</span>. Meldungen an diesem Gebäude stammen dann aus den Originaldaten.</li>
+      <li><span class="mono">GE_S_NOT_CLOSED</span> an triangulierten Flächen (TIN) ist ein Fehlalarm von CityDoctor 3.18.2, siehe „Zwei Ausgabe-Varianten“.</li>
+      <li>Beide Werkzeuge prüfen die Hülle eines Gebäudes erst, wenn seine Flächen fehlerfrei sind. Heilt der Healer einen Flächenfehler, kann deshalb ein schon vorhandener Hüllenfehler zum ersten Mal gemeldet werden. Original und Ausgabe Gebäude für Gebäude vergleichen, nicht nur die Gesamtzahlen.</li>
+    </ul>
+  </section>
+
+  <section>
     <h2>Bekannte fachliche Einschränkungen</h2>
     <ul>
       <li><strong>Triangulierte Wände erschweren nachgelagerte Bearbeitung.</strong> Konnte der Healer eine Wand nicht eben bekommen und sie deshalb als TIN abgelegt, lässt sich dort später kein sauberes Fenster/Tür mehr einschneiden (z. B. in der nachgelagerten LoD2→LoD3-Pipeline) — die Fläche ist kein einzelnes Polygon mehr, sondern viele kleine Dreiecke.</li>
@@ -394,6 +404,7 @@ java -cp target/sql2gml-complete.jar de.mpsc.sql2gml.legacy.CompleteWorkflow <gl
       <li><strong>Checkbox „Ohne TriangulatedSurface schreiben“</strong>: entspricht <span class="mono">PolygonOnlyReplaceWorkflow</span>, siehe <em>Benutzende</em>.</li>
       <li><strong>Konvertierung starten</strong> — Fortschrittsbalken mit echten Werten und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.</li>
     </ol>
+    <p><strong>Auswahldialoge:</strong> Jeder „Durchsuchen“-Dialog öffnet sich im Ordner des aktuellen Feldeintrags. Ist das Feld leer, öffnet er sich im zuletzt gewählten Ordner, auch nach einem Neustart der Anwendung. Wer also zuerst die CityGML-Datei wählt, landet beim Datenbank- oder Ausgabe-Dialog direkt in deren Ordner.</p>
     <p><strong>Eingabeprüfung beim Start:</strong> Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…“ ist keine .gml-Datei.“ ab, wenn die Eingabe nicht auf <span class="mono">.gml</span> endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige <span class="mono">.gml</span>-Datei enthält; sonstige (sichtbare) Nicht-<span class="mono">.gml</span>-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen“ ins Log geschrieben. Versteckte Dateien und Unterordner lösen keinen Hinweis aus.</p>
     <p>Technische Details zur GUI (Bibliotheken, Architektur): siehe <em>Programmierende</em>.</p>
   </section>
@@ -607,6 +618,8 @@ for (var partProp : building.getBuildingParts()) {
     </table></div>
     <h3>Architektur-Prinzip: dünne UI-Schicht, keine Logik-Duplikation</h3>
     <p>Die GUI ruft <span class="mono">HealedReplaceWorkflow.run(String[] args)</span> direkt auf — denselben Code-Pfad, den auch <span class="mono">main()</span> (CLI) nutzt. Verifiziert per Diff: CLI-Aufruf und GUI-Aufruf erzeugen auf den 14 Testgebäuden bytegleiche Ausgabe. <span class="mono">run()</span> wirft Exceptions statt <span class="mono">System.exit()</span> aufzurufen, damit die GUI einen Fehler in einem Dialog anzeigen kann — CLI-Verhalten bleibt unverändert.</p>
+    <h3>Zuletzt benutzter Ordner</h3>
+    <p>Alle Auswahldialoge laufen über <span class="mono">newChooser(JTextField)</span>: Startordner ist der Elternordner des Feldeintrags, sonst der gemerkte Ordner. Nach jeder Auswahl speichert <span class="mono">rememberFolder</span> den Elternordner der gewählten Datei bzw. des gewählten Ordners (bei Ordnern der übergeordnete, damit Nachbarordner sichtbar sind) über <span class="mono">java.util.prefs.Preferences</span> (Schlüssel <span class="mono">letzterOrdner</span>, unter Windows in der Registry des angemeldeten Benutzers). Ein nicht mehr vorhandener Ordner wird ignoriert; ist die Registry nicht beschreibbar, bleibt es beim Standardverhalten. Identisch in <span class="mono">Lod2Lod3Gui</span> (LoD2→LoD3-Pipeline).</p>
     <h3>Fortschritts-Hook und Log-Anzeige</h3>
     <p><span class="mono">ProgressListener</span> (statisch, <span class="mono">null</span> im CLI-Betrieb = No-Op) meldet <span class="mono">onFileStart(fileIndex, totalFiles, filename)</span> im Batch-Modus (echte Werte) und <span class="mono">onFeature(featuresRead)</span> nach jedem gelesenen CityGML-Feature. Für einen echten X/Y-Balken im Einzeldatei-Modus zählt die GUI vorab die <span class="mono">&lt;core:cityObjectMember&gt;</span>-Zeilen der Eingabedatei — dasselbe Prinzip wie in <span class="mono">GmlMemberFilter</span>. <span class="mono">System.out</span>/<span class="mono">System.err</span> werden beim GUI-Start (vor jedem Zugriff auf <span class="mono">HealedReplaceWorkflow</span>, da SLF4J-Simple den Ziel-Stream beim ersten <span class="mono">getLogger()</span>-Aufruf fest bindet) durch einen zeilenweise puffernden Stream ersetzt, der jede Zeile zusätzlich an die Swing-Textfläche weiterreicht.</p>
   </section>

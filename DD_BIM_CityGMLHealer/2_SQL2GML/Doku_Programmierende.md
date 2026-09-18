@@ -359,6 +359,10 @@ Die GUI ruft `HealedReplaceWorkflow.run(String[] args)` direkt auf — denselben
 
 `HealedReplaceWorkflow.ProgressListener` (statisches, per `setProgressListener()` gesetztes Interface, `null` im CLI-Betrieb = No-Op) meldet `onFileStart(fileIndex, totalFiles, filename)` im Batch-Modus (echte Werte aus der bereits vorhandenen Dateiliste) und `onFeature(featuresRead)` nach jedem gelesenen CityGML-Feature. Für einen echten X/Y-Fortschrittsbalken im Einzeldatei-Modus zählt die GUI vorab die Anzahl `<core:cityObjectMember>`-Zeilen in der Eingabedatei (reines Zeilenlesen, kein XML-Parsing, daher schnell auch bei großen Kacheln) — dasselbe Zeilen-Prinzip wie bereits in `GmlMemberFilter` verwendet.
 
+### Zuletzt benutzter Ordner
+
+Alle Auswahldialoge laufen über `newChooser(JTextField)`: Startordner ist der Elternordner des Feldeintrags, sonst der gemerkte Ordner. Nach jeder Auswahl speichert `rememberFolder` den Elternordner der gewählten Datei bzw. des gewählten Ordners (bei Ordnern der übergeordnete, damit Nachbarordner sichtbar sind) über `java.util.prefs.Preferences` (Schlüssel `letzterOrdner`, unter Windows in der Registry des angemeldeten Benutzers). Ein nicht mehr vorhandener Ordner wird ignoriert; ist die Registry nicht beschreibbar, bleibt es beim Standardverhalten. Identisch in `Lod2Lod3Gui` (LoD2→LoD3-Pipeline).
+
 ### Log-Anzeige
 
 `System.out`/`System.err` werden beim GUI-Start (vor jedem Zugriff auf `HealedReplaceWorkflow`, da SLF4J-Simple den Ziel-Stream beim ersten `LoggerFactory.getLogger(...)`-Aufruf fest bindet) durch einen zeilenweise puffernden `OutputStream` ersetzt, der jede Zeile zusätzlich an die Swing-Textfläche weiterreicht — ohne den ursprünglichen Stream zu ersetzen (bei Start aus einem Terminal bleibt die Konsolenausgabe zusätzlich erhalten).
