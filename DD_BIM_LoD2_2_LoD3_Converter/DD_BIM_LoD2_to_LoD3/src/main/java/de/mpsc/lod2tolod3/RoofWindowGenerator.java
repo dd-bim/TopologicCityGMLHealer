@@ -36,6 +36,22 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
     /** Toleranz fuer Flachdach-Erkennung, identisch zu {@code BuildingQueryUtils.getRoofZRange}. */
     private static final double FLAT_ROOF_TOLERANCE = 0.05;
 
+    /** Z-Toleranz, innerhalb derer zwei Dachpunkte als gemeinsame Traufkante gelten. Die 1 cm der
+     * Wand-Unterkanten sind fuer LoD2-Dachtraufen zu eng: auf der Testkachel sind ~800 von 12.400
+     * geneigten Dachflaechen um 1–5 cm aus der Waage (Digitalisierung), ohne Traufkante gibt es
+     * dort kein Dachfenster (z.B. imX: 2 cm). Seit die u-Achse den echten Z-Anteil der Traufe
+     * traegt (siehe Doku.md "Dachfenster exakt in der Dachebene"), ist eine leicht geneigte
+     * Traufe geometrisch unkritisch. Bewusst nur 2 cm: 5 cm brachte tile-weit keine weitere
+     * Verbesserung ohne Nebenwirkung (mehr Fenster auf gekerbten Flaechen -> CityDoctor2-
+     * Trianguations-Fehlalarme, siehe Doku.md). */
+    private static final double ROOF_EAVE_Z_TOL = 0.02;
+
+    /** Maximale Verdrehung (Abstand zur Ausgleichsebene) einer Dachflaeche, in die noch
+     * Fensterloecher geschnitten werden. Darueber ist die Flaeche schon in den Quelldaten
+     * kaputt (CityDoctor2 flaggt ab 1,4 mm, val3dity ab 10 mm) — Loecher machen es nur
+     * schlimmer. 5 mm trifft auf der Testkachel 4 Flaechen / 4 Fenster. */
+    private static final double ROOF_MAX_PLANE_DEVIATION = 0.005;
+
     public static void main(String[] args) {
         RoofWindowGenerator gen = new RoofWindowGenerator();
         try {
@@ -107,18 +123,33 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
             stats.skip(SkipReason.FLAT_ROOF); return;
         }
 
+        // 2b. Verdrehte Traegerflaeche: Dachflaechen, die selbst deutlich aus der Ebene sind
+        // (Quelldaten-Verdrehung, z.B. 8 mm bei gY3), bekommen keine Fensterloecher — dort
+        // koennen die Loch-Ecken nicht "in der Ebene" liegen, jede Platzierung erzeugt oder
+        // verstaerkt Planaritaets-/Validitaetsfehler (val3dity 203, siehe Doku.md).
+        if (GeometryUtils.maxPlaneDeviation(open) > ROOF_MAX_PLANE_DEVIATION) {
+            stats.skip(SkipReason.NON_PLANAR); return;
+        }
+
         // 3. Traufkante (unterste Kante, wie bei Waenden) — komplexe/unregelmaessige
         // Verschneidungsflaechen ohne 2 Punkte auf zMin (z.B. Kehlflaechen) werden hier
         // automatisch uebersprungen, kein Sondercode noetig.
-        GeometryUtils.BottomEdge edge = GeometryUtils.findBottomEdge(open);
+        GeometryUtils.BottomEdge edge = GeometryUtils.findBottomEdge(open, ROOF_EAVE_Z_TOL);
         if (edge == null) { stats.skip(SkipReason.NO_BOTTOM_EDGE); return; }
+        // Traufrichtung als echter 3D-Vektor: findBottomEdge laesst bis 1 cm Hoehenunterschied
+        // zwischen den Traufpunkten zu. Eine rein horizontale u-Achse laege dann NICHT in der
+        // Dachebene, und die Fensterecken wanderten proportional zu u aus der Ebene heraus
+        // (mehrere mm -> GE_P_NON_PLANAR, siehe Doku.md "Dachfenster exakt in der Dachebene").
         double dx = edge.end().x - edge.start().x;
         double dy = edge.end().y - edge.start().y;
-        double dirX = dx / edge.wallLength();
-        double dirY = dy / edge.wallLength();
+        double dz = edge.end().z - edge.start().z;
+        double len3 = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double dirX = dx / len3;
+        double dirY = dy / len3;
+        double dirZ = dz / len3;
 
         // 4. Aufwaerts-Vektor (Traufe -> First) entlang der Dachschraege
-        double[] up = GeometryUtils.computeUpSlopeVector(open, dirX, dirY);
+        double[] up = GeometryUtils.computeUpSlopeVector(open, dirX, dirY, dirZ);
         if (up == null) { stats.skip(SkipReason.NO_BOTTOM_EDGE); return; }
         double upX = up[0], upY = up[1], upZ = up[2];
 
@@ -149,7 +180,10 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
 
         // 8. Validierung: Fenster muss vollstaendig in der (ggf. zum First hin schmaler
         // werdenden) Dachflaeche liegen
-        double[][] roofPoly2D = GeometryUtils.projectPlaneTo2D(open, edge.start(), dirX, dirY, upX, upY, upZ);
+        double[][] roofPoly2D = GeometryUtils.projectPlaneTo2D(open, edge.start(), dirX, dirY, dirZ, upX, upY, upZ);
+        // Vorhandene Loecher der Dachflaeche (z.B. Gauben-/Schornsteinausschnitte aus den Quelldaten)
+        List<double[][]> holes2D = OpeningUtils.projectInteriorRings2D(
+                roofPoly, edge.start(), dirX, dirY, dirZ, upX, upY, upZ);
         List<double[]> validWindows = new ArrayList<>();
         for (double hOffset : offsets) {
             double uLeft = hOffset, uRight = hOffset + wp.windowWidth;
@@ -161,7 +195,8 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
             // liegen und trotzdem die Kerbe ueberspannen, was die Dachflaeche mit der Gaubenwand/
             // -dach selbst ueberschneidet (GE_S_SELF_INTERSECTION, siehe Doku.md).
             if (OpeningUtils.openingInsideWallSideTopClearance2D(uLeft, uRight, vBottom, vTop, roofPoly2D)
-                    && !OpeningUtils.wallContourEntersOpening(uLeft, uRight, vBottom, vTop, roofPoly2D)) {
+                    && !OpeningUtils.wallContourEntersOpening(uLeft, uRight, vBottom, vTop, roofPoly2D)
+                    && !OpeningUtils.openingTouchesHoles2D(uLeft, uRight, vBottom, vTop, holes2D)) {
                 validWindows.add(new double[]{uLeft, uRight});
             } else {
                 stats.gableRoofWindowsDropped++;
@@ -170,13 +205,13 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
         if (validWindows.isEmpty()) { stats.skip(SkipReason.PIP_FAIL); return; }
 
         // 9. Erzeugen
-        placeRoofWindowSurfaces(roof, roofPoly, open, edge.start(), dirX, dirY, upX, upY, upZ,
+        placeRoofWindowSurfaces(roof, roofPoly, open, edge.start(), dirX, dirY, dirZ, upX, upY, upZ,
                 validWindows, vBottom, vTop, wp, stats);
     }
 
     /** Erzeugt innere Polygon-Ringe und WindowSurface-Objekte fuer alle validen Dachfenster. */
     private void placeRoofWindowSurfaces(RoofSurface roof, Polygon roofPoly, List<Point3D> open,
-            Point3D origin, double dirX, double dirY, double upX, double upY, double upZ,
+            Point3D origin, double dirX, double dirY, double dirZ, double upX, double upY, double upZ,
             List<double[]> validWindows, double vBottom, double vTop,
             ModuleParameters.WindowParams wp, GenerationStats stats) {
 
@@ -185,17 +220,20 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
             roofFaceId = roof.getId() != null ? roof.getId() : "unknown";
         }
 
-        boolean extCCW = SolidShellUtils.isRingCCWOnPlane(open, origin, dirX, dirY, upX, upY, upZ);
+        boolean extCCW = SolidShellUtils.isRingCCWOnPlane(open, origin, dirX, dirY, dirZ, upX, upY, upZ);
+        // Ecken zusaetzlich auf die Ausgleichsebene der (ggf. leicht verzogenen) Dachflaeche legen: die
+        // Traufebene weicht dort um Bruchteile eines mm ab, Loecher wuerden die Planaritaet sonst verschlechtern.
+        double[] roofPlane = GeometryUtils.newellPlane(open);
 
         int windowIdx = 0;
         for (double[] win : validWindows) {
             double uLeft = win[0], uRight = win[1];
             windowIdx++;
 
-            Point3D bl = planePoint(origin, dirX, dirY, upX, upY, upZ, uLeft, vBottom);
-            Point3D br = planePoint(origin, dirX, dirY, upX, upY, upZ, uRight, vBottom);
-            Point3D tr = planePoint(origin, dirX, dirY, upX, upY, upZ, uRight, vTop);
-            Point3D tl = planePoint(origin, dirX, dirY, upX, upY, upZ, uLeft, vTop);
+            Point3D bl = onRoofPlane(planePoint(origin, dirX, dirY, dirZ, upX, upY, upZ, uLeft, vBottom), roofPlane);
+            Point3D br = onRoofPlane(planePoint(origin, dirX, dirY, dirZ, upX, upY, upZ, uRight, vBottom), roofPlane);
+            Point3D tr = onRoofPlane(planePoint(origin, dirX, dirY, dirZ, upX, upY, upZ, uRight, vTop), roofPlane);
+            Point3D tl = onRoofPlane(planePoint(origin, dirX, dirY, dirZ, upX, upY, upZ, uLeft, vTop), roofPlane);
 
             Polygon winPoly = OpeningUtils.addOpeningToWall(roofPoly, bl, br, tr, tl, extCCW);
 
@@ -236,12 +274,16 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
                 roof.getId(), validWindows.size(), stats.gableRoofWindowsDropped);
     }
 
-    private static Point3D planePoint(Point3D origin, double dirX, double dirY,
+    private static Point3D onRoofPlane(Point3D p, double[] plane) {
+        return plane == null ? p : GeometryUtils.projectOntoPlane(p, plane);
+    }
+
+    private static Point3D planePoint(Point3D origin, double dirX, double dirY, double dirZ,
             double upX, double upY, double upZ, double u, double v) {
         return new Point3D(
                 origin.x + u * dirX + v * upX,
                 origin.y + u * dirY + v * upY,
-                origin.z + v * upZ);
+                origin.z + u * dirZ + v * upZ);
     }
 
     // ==================== Statistiken ====================
@@ -254,6 +296,7 @@ public class RoofWindowGenerator extends AbstractGenerator<RoofWindowGenerator.G
         TOO_LOW("tooLow"),               // Flaeche zu kurz entlang der Schraege (Traufe->First)
         TOO_SHORT("tooShort"),           // Traufkante zu kurz fuer ein Fenster
         NO_FIT("noFit"),                 // Kein Fenster passt entlang der Traufe
+        NON_PLANAR("warped"),            // Traegerflaeche selbst zu stark verdreht (Quelldaten)
         PIP_FAIL("pipFail");             // Alle Kandidaten liegen ausserhalb der Dachkontur
 
         final String label;

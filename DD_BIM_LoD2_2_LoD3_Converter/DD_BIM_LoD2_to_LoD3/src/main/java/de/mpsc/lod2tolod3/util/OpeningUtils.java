@@ -108,6 +108,43 @@ public final class OpeningUtils {
         return false;
     }
 
+    /** Vorhandene Loecher (innere Ringe) eines Polygons in dessen (u,v)-Ebene projiziert. */
+    public static List<double[][]> projectInteriorRings2D(Polygon poly, Point3D origin,
+            double dirX, double dirY, double dirZ, double upX, double upY, double upZ) {
+        List<double[][]> holes = new java.util.ArrayList<>();
+        for (AbstractRingProperty irp : poly.getInterior()) {
+            if (!(irp.getObject() instanceof LinearRing ring)) continue;
+            List<Point3D> pts = GeometryUtils.removeClosingPoint(GeometryUtils.pointsOfRing(ring));
+            if (pts.size() >= 3) {
+                holes.add(GeometryUtils.projectPlaneTo2D(pts, origin, dirX, dirY, dirZ, upX, upY, upZ));
+            }
+        }
+        return holes;
+    }
+
+    /** True, wenn das Oeffnungs-Rechteck (mit {@link #OPENING_TOP_CLEARANCE} rundum) ein vorhandenes
+     * Loch beruehrt, schneidet oder darin liegt — sonst entstehen verschachtelte bzw. sich beruehrende
+     * innere Ringe (GE_P_INNER_RINGS_NESTED / GE_P_INTERSECTING_RINGS, siehe Doku.md). */
+    public static boolean openingTouchesHoles2D(double uLeft, double uRight, double vBottom, double vTop,
+            List<double[][]> holes2D) {
+        if (holes2D.isEmpty()) return false;
+        org.locationtech.jts.geom.GeometryFactory gf = new org.locationtech.jts.geom.GeometryFactory();
+        double cl = OPENING_TOP_CLEARANCE;
+        org.locationtech.jts.geom.Geometry rect = gf.toGeometry(new org.locationtech.jts.geom.Envelope(
+                uLeft - cl, uRight + cl, vBottom - cl, vTop + cl));
+        for (double[][] h : holes2D) {
+            org.locationtech.jts.geom.Coordinate[] c = new org.locationtech.jts.geom.Coordinate[h.length + 1];
+            for (int i = 0; i < h.length; i++) c[i] = new org.locationtech.jts.geom.Coordinate(h[i][0], h[i][1]);
+            c[h.length] = c[0];
+            try {
+                if (rect.intersects(gf.createPolygon(c))) return true;
+            } catch (RuntimeException e) {
+                return true; // entartetes Loch: im Zweifel kein Fenster
+            }
+        }
+        return false;
+    }
+
     /** Fuegt eine rechteckige Oeffnung in ein Wand-Polygon ein, liefert das FillingSurface-Polygon dazu. */
     public static Polygon addOpeningToWall(Polygon wallPoly, Point3D bl, Point3D br,
             Point3D tr, Point3D tl, boolean extCCW) {

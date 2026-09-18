@@ -118,7 +118,7 @@ public final class SolidShellUtils {
      * Wand-Annahme v=Z — fuer geneigte Flaechen (z.B. Dachschraegen), deren zweite lokale Achse
      * nicht senkrecht ist. */
     public static boolean isRingCCWOnPlane(List<Point3D> open, Point3D origin,
-            double dirX, double dirY, double upX, double upY, double upZ) {
+            double dirX, double dirY, double dirZ, double upX, double upY, double upZ) {
         double area2 = 0;
         int n = open.size();
         for (int i = 0; i < n; i++) {
@@ -126,8 +126,8 @@ public final class SolidShellUtils {
             Point3D b = open.get((i + 1) % n);
             double ax = a.x - origin.x, ay = a.y - origin.y, az = a.z - origin.z;
             double bx = b.x - origin.x, by = b.y - origin.y, bz = b.z - origin.z;
-            double ua = ax * dirX + ay * dirY, va = ax * upX + ay * upY + az * upZ;
-            double ub = bx * dirX + by * dirY, vb = bx * upX + by * upY + bz * upZ;
+            double ua = ax * dirX + ay * dirY + az * dirZ, va = ax * upX + ay * upY + az * upZ;
+            double ub = bx * dirX + by * dirY + bz * dirZ, vb = bx * upX + by * upY + bz * upZ;
             area2 += (ua * vb - ub * va);
         }
         return area2 > 0;

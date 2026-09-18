@@ -302,11 +302,17 @@ public final class GeometryUtils {
      * @return BottomEdge, oder null wenn weniger als 2 Punkte auf zMin liegen
      */
     public static BottomEdge findBottomEdge(List<Point3D> open) {
+        return findBottomEdge(open, 0.01);
+    }
+
+    /** Wie {@link #findBottomEdge(List)}, mit eigener Z-Toleranz fuer "liegt auf zMin" — Waende
+     *  (waagerecht geschnittene Unterkante) kommen mit 1 cm aus, Dachtraufen aus den LoD2-Quelldaten
+     *  sind haeufig um einige cm aus der Waage (siehe RoofWindowGenerator.ROOF_EAVE_Z_TOL). */
+    public static BottomEdge findBottomEdge(List<Point3D> open, double zTol) {
         if (open == null || open.size() < 2) return null;
         double[] zRange = getZRange(open);
         double zMin = zRange[0];
         double zMax = zRange[1];
-        double zTol = 0.01;
 
         List<Integer> bottomIndices = new ArrayList<>();
         for (int i = 0; i < open.size(); i++) {
@@ -511,22 +517,23 @@ public final class GeometryUtils {
     /** Wie {@link #projectWallTo2D}, aber mit echtem 3D-"Aufwaerts"-Vektor (up, normiert) statt
      * der Wand-Annahme v=z-zMin — fuer geneigte Flaechen (z.B. Dachschraegen). */
     public static double[][] projectPlaneTo2D(List<Point3D> open, Point3D origin,
-            double dirX, double dirY, double upX, double upY, double upZ) {
+            double dirX, double dirY, double dirZ, double upX, double upY, double upZ) {
         double[][] poly2D = new double[open.size()][2];
         for (int i = 0; i < open.size(); i++) {
             Point3D p = open.get(i);
             double dx = p.x - origin.x, dy = p.y - origin.y, dz = p.z - origin.z;
-            poly2D[i][0] = dx * dirX + dy * dirY;
+            poly2D[i][0] = dx * dirX + dy * dirY + dz * dirZ;
             poly2D[i][1] = dx * upX + dy * upY + dz * upZ;
         }
         return poly2D;
     }
 
     /** Ermittelt den normierten "Aufwaerts"-Vektor (Traufe -> First) einer geneigten Flaeche:
-     * Newell-Normale der Flaeche gekreuzt mit der (horizontalen) Traufrichtung, Vorzeichen so
-     * gewaehlt, dass die Z-Komponente positiv ist (zeigt zum First). Liefert {@code null} bei
-     * degenerierter/planloser Normale (z.B. entartetes Polygon). */
-    public static double[] computeUpSlopeVector(List<Point3D> open, double dirX, double dirY) {
+     * Newell-Normale der Flaeche gekreuzt mit der echten 3D-Traufrichtung (inkl. Z-Anteil — die
+     * Traufe darf bis 1 cm aus der Waage sein, nur so liegt die u-Achse in der Dachebene),
+     * Vorzeichen so gewaehlt, dass die Z-Komponente positiv ist (zeigt zum First). Liefert
+     * {@code null} bei degenerierter/planloser Normale (z.B. entartetes Polygon). */
+    public static double[] computeUpSlopeVector(List<Point3D> open, double dirX, double dirY, double dirZ) {
         double nx = 0, ny = 0, nz = 0;
         int n = open.size();
         for (int i = 0; i < n; i++) {
@@ -540,15 +547,51 @@ public final class GeometryUtils {
         if (nLen < 1e-9) return null;
         nx /= nLen; ny /= nLen; nz /= nLen;
 
-        // up = normal x traufRichtung (dirX, dirY, 0)
-        double ux = ny * 0 - nz * dirY;
-        double uy = nz * dirX - nx * 0;
+        // up = normal x traufRichtung (dirX, dirY, dirZ)
+        double ux = ny * dirZ - nz * dirY;
+        double uy = nz * dirX - nx * dirZ;
         double uz = nx * dirY - ny * dirX;
         double uLen = Math.sqrt(ux * ux + uy * uy + uz * uz);
         if (uLen < 1e-9) return null;
         ux /= uLen; uy /= uLen; uz /= uLen;
         if (uz < 0) { ux = -ux; uy = -uy; uz = -uz; }
         return new double[]{ux, uy, uz};
+    }
+
+    /** Maximaler Abstand der Punkte zur Ebene durch den Schwerpunkt mit Newell-Normale — Mass
+     *  fuer die Verdrehung einer (fast) planaren Flaeche, 0 bei exakt planaren Polygonen. */
+    public static double maxPlaneDeviation(List<Point3D> open) {
+        double[] pl = newellPlane(open);
+        if (pl == null) return 0;
+        double max = 0;
+        for (Point3D p : open) {
+            double d = Math.abs((p.x - pl[3]) * pl[0] + (p.y - pl[4]) * pl[1] + (p.z - pl[5]) * pl[2]);
+            if (d > max) max = d;
+        }
+        return max;
+    }
+
+    /** Ebene eines offenen Rings aus Newell-Normale und Schwerpunkt: {nx, ny, nz, cx, cy, cz}; null bei Entartung. */
+    public static double[] newellPlane(List<Point3D> open) {
+        int n = open.size();
+        if (n < 3) return null;
+        double nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
+        for (int i = 0; i < n; i++) {
+            Point3D a = open.get(i), b = open.get((i + 1) % n);
+            nx += (a.y - b.y) * (a.z + b.z);
+            ny += (a.z - b.z) * (a.x + b.x);
+            nz += (a.x - b.x) * (a.y + b.y);
+            cx += a.x; cy += a.y; cz += a.z;
+        }
+        double len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (len < 1e-12) return null;
+        return new double[]{nx / len, ny / len, nz / len, cx / n, cy / n, cz / n};
+    }
+
+    /** Punkt senkrecht auf die Ebene {@code plane} (siehe {@link #newellPlane}) projiziert. */
+    public static Point3D projectOntoPlane(Point3D p, double[] plane) {
+        double d = (p.x - plane[3]) * plane[0] + (p.y - plane[4]) * plane[1] + (p.z - plane[5]) * plane[2];
+        return new Point3D(p.x - d * plane[0], p.y - d * plane[1], p.z - d * plane[2]);
     }
 
     // ==================== Ring-Punkte ====================

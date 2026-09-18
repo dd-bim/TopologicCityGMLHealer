@@ -258,11 +258,18 @@ public class Lod2ToLod3Pipeline {
                 agg.basementStats.basementsAdded += r.basementStats.basementsAdded;
                 agg.basementStats.groundSurfacesReplaced += r.basementStats.groundSurfacesReplaced;
                 agg.basementStats.ticsCreated += r.basementStats.ticsCreated;
+                agg.basementStats.interiorEdgesSkipped += r.basementStats.interiorEdgesSkipped;
+                agg.basementStats.footprintsMerged += r.basementStats.footprintsMerged;
 
                 agg.storeyStats.storeysCreated += r.storeyStats.storeysCreated;
                 agg.storeyStats.wallSegmentsCreated += r.storeyStats.wallSegmentsCreated;
                 agg.storeyStats.floorsCreated += r.storeyStats.floorsCreated;
                 agg.storeyStats.ceilingsCreated += r.storeyStats.ceilingsCreated;
+                agg.storeyStats.upperStoreysAdded += r.storeyStats.upperStoreysAdded;
+                agg.storeyStats.upperStoreyCandidates += r.storeyStats.upperStoreyCandidates;
+                agg.storeyStats.upperSkippedSlabLimit += r.storeyStats.upperSkippedSlabLimit;
+                agg.storeyStats.upperSkippedRegion += r.storeyStats.upperSkippedRegion;
+                agg.storeyStats.upperSkippedHeight += r.storeyStats.upperSkippedHeight;
 
                 agg.doorStats.doorsCreated += r.doorStats.doorsCreated;
                 agg.doorStats.wallsModified += r.doorStats.wallsModified;
@@ -423,9 +430,9 @@ public class Lod2ToLod3Pipeline {
             // Zusatzflaechen (Geschosse, Keller, Boden-/Deckenslabs) an den Naehten zusammen
             // → gegen GE_S_NOT_CLOSED / NON_MANIFOLD.
             //
-            // Vertex-Welding wurde bewusst ENTFERNT: es verschob ~0,3% der Vertices um bis
-            // zu 5 mm (echtes Geometrie-Reshaping). Das Schliessen solcher mm-Naehte
-            // uebernimmt der nachgelagerte Healer, nicht dieses LoD3-Update.
+            // Kein globales Vertex-Welding (verschob ~0,3% der Vertices um bis zu 5 mm), nur
+            // eng begrenzt bis 2 mm an kollidierenden T-Naht-Punkten. Nach LoD3 laeuft kein
+            // Healer mehr; mm-Naehte der LoD2-Quelle sind Sache des vorgelagerten Healers.
             JunctionConformingUtils.conformJunctions(building, 0.005);
 
             // Schritt 7: Pinch-Point-Aufspaltung — spaltet Ringe, die durch die T-Naht-
@@ -488,12 +495,15 @@ public class Lod2ToLod3Pipeline {
         log.info("");
         log.info("Schritt 1 — Promotion:  {} Gebaeude, {} Geometrien hochgestuft, {} Namen",
                 r.promStats.buildingsProcessed, r.promStats.geometriesPromoted, r.promStats.namesRenamed);
-        log.info("Schritt 2 — Keller:     {} Keller, {} GS ersetzt, {} TICs",
+        log.info("Schritt 2 — Keller:     {} Keller, {} GS ersetzt, {} TICs, {} Innenkanten ohne Kellerwand, {} Keller aus vereinigten Grundrissen",
                 r.basementStats.basementsAdded, r.basementStats.groundSurfacesReplaced,
-                r.basementStats.ticsCreated);
+                r.basementStats.ticsCreated, r.basementStats.interiorEdgesSkipped, r.basementStats.footprintsMerged);
         log.info("Schritt 3 — Geschosse:  {} Geschosse, {} Wandsegmente, {} Boeden, {} Decken",
                 r.storeyStats.storeysCreated, r.storeyStats.wallSegmentsCreated,
                 r.storeyStats.floorsCreated, r.storeyStats.ceilingsCreated);
+        log.info("Schritt 3 — Geschosse oberhalb der Traufe: {} Gebaeude(teile) erweitert, {} Kandidaten, ausgelassen: {} Slab-Begrenzung, {} Fitzelchen-Bereich, {} kein Zusatzgeschoss",
+                r.storeyStats.upperStoreysAdded, r.storeyStats.upperStoreyCandidates,
+                r.storeyStats.upperSkippedSlabLimit, r.storeyStats.upperSkippedRegion, r.storeyStats.upperSkippedHeight);
         log.info("Schritt 4 — Tueren:     {} Tueren, {} Waende modifiziert, {} uebersprungen",
                 r.doorStats.doorsCreated, r.doorStats.wallsModified, r.doorStats.wallsSkipped);
         log.info("Schritt 4d — Fallback-Tueren (Gebaeude mit Fenstern, aber ohne Tuer): {}, "

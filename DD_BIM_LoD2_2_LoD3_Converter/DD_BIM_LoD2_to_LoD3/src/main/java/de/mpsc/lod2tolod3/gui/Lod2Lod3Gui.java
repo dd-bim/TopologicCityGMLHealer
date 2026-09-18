@@ -51,6 +51,8 @@ public final class Lod2Lod3Gui {
     private JCheckBox roofWindowsCheck;
 
     private final List<String> pendingLog = new ArrayList<>();
+    /** ERROR-Zeilen im Log des laufenden Durchgangs (z. B. fehlgeschlagene Kachel, unlesbares Modul). */
+    private final java.util.concurrent.atomic.AtomicInteger errorLines = new java.util.concurrent.atomic.AtomicInteger();
 
     private boolean darkMode = false;
     private JButton themeToggle;
@@ -331,7 +333,7 @@ public final class Lod2Lod3Gui {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void chooseInput() {
-        JFileChooser chooser = new JFileChooser();
+        JFileChooser chooser = newChooser(inputField);
         if (modeSingle.isSelected()) {
             chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
             chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CityGML (*.gml)", "gml"));
@@ -339,26 +341,71 @@ public final class Lod2Lod3Gui {
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         }
         if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            inputField.setText(chooser.getSelectedFile().getAbsolutePath());
+            applySelection(chooser, inputField);
         }
     }
 
     private void chooseFolder(JTextField target) {
-        JFileChooser chooser = new JFileChooser();
+        JFileChooser chooser = newChooser(target);
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            target.setText(chooser.getSelectedFile().getAbsolutePath());
+            applySelection(chooser, target);
         }
     }
 
     private void chooseDgm() {
-        JFileChooser chooser = new JFileChooser();
+        JFileChooser chooser = newChooser(dgmField);
         chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
         chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
                 "DGM (.asc, .tif, .tiff, .zip) oder Ordner mit mehreren Kacheln", "asc", "tif", "tiff", "zip"));
         if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            dgmField.setText(chooser.getSelectedFile().getAbsolutePath());
+            applySelection(chooser, dgmField);
         }
+    }
+
+    // Zuletzt benutzter Ordner, bleibt ueber Programmneustarts erhalten (Java Preferences, pro Benutzer).
+    private static final String PREF_LAST_DIR = "letzterOrdner";
+
+    /** Auswahldialog, der im Ordner des Feld-Eintrags startet, sonst im zuletzt benutzten Ordner. */
+    static JFileChooser newChooser(JTextField field) {
+        JFileChooser chooser = new JFileChooser();
+        String text = field.getText().trim();
+        File parent = text.isEmpty() ? null : new File(text).getAbsoluteFile().getParentFile();
+        File start = parent != null && parent.isDirectory() ? parent : lastFolder();
+        if (start != null) chooser.setCurrentDirectory(start);
+        return chooser;
+    }
+
+    private static void applySelection(JFileChooser chooser, JTextField field) {
+        File selected = chooser.getSelectedFile().getAbsoluteFile();
+        field.setText(selected.getPath());
+        rememberFolder(selected);
+    }
+
+    /** Merkt sich den Ordner, in dem die Auswahl liegt — bei Ordnern den uebergeordneten, damit
+     *  Nachbarordner (Kacheln, Module, Ausgabe) beim naechsten Dialog direkt sichtbar sind. */
+    static void rememberFolder(File selected) {
+        File dir = selected.getAbsoluteFile().getParentFile();
+        if (dir == null) return;
+        try {
+            prefs().put(PREF_LAST_DIR, dir.getPath());
+        } catch (RuntimeException ignored) {
+            // Einstellungen nicht speicherbar (z. B. gesperrte Registry) — reine Komfortfunktion
+        }
+    }
+
+    static File lastFolder() {
+        try {
+            String path = prefs().get(PREF_LAST_DIR, null);
+            File dir = path == null ? null : new File(path);
+            return dir != null && dir.isDirectory() ? dir : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static java.util.prefs.Preferences prefs() {
+        return java.util.prefs.Preferences.userNodeForPackage(Lod2Lod3Gui.class);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -389,6 +436,14 @@ public final class Lod2Lod3Gui {
         if (!Files.isDirectory(Path.of(json))) {
             JOptionPane.showMessageDialog(frame,
                     "JSON-Modulordner nicht gefunden.", "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        // Gleicher Filter wie ModuleParametersLoader; ohne Module entstuende still kein einziges LoD3-Element.
+        File[] modules = Path.of(json).toFile().listFiles(f -> f.isFile() && f.getName().endsWith(".json"));
+        if (modules == null || modules.length == 0) {
+            JOptionPane.showMessageDialog(frame,
+                    "Im JSON-Modulordner „" + Path.of(json).getFileName() + "“ wurden keine .json-Dateien gefunden.",
+                    "Keine Baukörpermodule", JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (!dgm.isEmpty() && !Files.exists(Path.of(dgm))) {
@@ -425,6 +480,8 @@ public final class Lod2Lod3Gui {
 
         setFormEnabled(false);
         logArea.setText("");
+        errorLines.set(0);
+        long startMillis = System.currentTimeMillis();
         if (!single) {
             List<String> skipped = nonGmlFileNames(inputPath);
             int shown = Math.min(skipped.size(), 20);
@@ -488,17 +545,24 @@ public final class Lod2Lod3Gui {
                 progressBar.setIndeterminate(false);
                 try {
                     get();
+                    int errors = errorLines.get();
                     progressBar.setValue(progressBar.getMaximum());
-                    progressBar.setString("Fertig");
-                    statusLabel.setText("Erfolgreich abgeschlossen.");
-                    onSuccess(output);
+                    progressBar.setString(errors == 0 ? "Fertig" : "Fertig mit Fehlern");
+                    statusLabel.setText(errors == 0 ? "Erfolgreich abgeschlossen."
+                            : "Abgeschlossen, aber " + errors + " Fehlermeldung(en) im Log.");
+                    onSuccess(output, errors);
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    String message = describeError(cause);
                     progressBar.setValue(0);
                     progressBar.setString("Fehler");
-                    statusLabel.setText("Fehler: " + cause.getMessage());
+                    statusLabel.setText("Fehler: " + message.lines().findFirst().orElse(message));
+                    List<String> written = filesModifiedSince(Path.of(output), startMillis);
+                    if (!written.isEmpty()) {
+                        message += "\n\nUnvollständig geschrieben, nicht verwenden:\n" + String.join("\n", written);
+                    }
                     JOptionPane.showMessageDialog(frame,
-                            "Die Verarbeitung ist fehlgeschlagen:\n" + cause.getMessage(),
+                            "Die Verarbeitung ist fehlgeschlagen:\n" + message,
                             "Fehler", JOptionPane.ERROR_MESSAGE);
                 }
             }
@@ -506,11 +570,42 @@ public final class Lod2Lod3Gui {
         worker.execute();
     }
 
-    private void onSuccess(String output) {
-        if (!Desktop.isDesktopSupported()) return;
+    /** Aussagekräftigste Meldung der Ursachenkette (citygml4j verpackt Lesefehler als „Caused by:“). */
+    static String describeError(Throwable error) {
+        String message = null;
+        Throwable t = error;
+        for (int depth = 0; t != null && depth < 20; depth++, t = t.getCause()) {
+            String m = t.getMessage();
+            if (m == null || m.isBlank() || m.startsWith("Caused by")) continue;
+            message = m.trim();
+            // Dateisystem-Fehler ohne Begruendung liefern nur den Pfad als Meldung.
+            if (t instanceof java.nio.file.AccessDeniedException) message = "Zugriff verweigert: " + message;
+            else if (t instanceof java.nio.file.NoSuchFileException) message = "Nicht gefunden: " + message;
+        }
+        return message != null ? message : error.getClass().getSimpleName();
+    }
+
+    /** Dateien im Ausgabeordner, die seit Laufbeginn geschrieben wurden. */
+    private static List<String> filesModifiedSince(Path folder, long startMillis) {
+        File[] files = folder.toFile().listFiles(f -> f.isFile() && f.lastModified() >= startMillis - 2000);
+        List<String> names = new ArrayList<>();
+        if (files != null) for (File f : files) names.add(f.getName());
+        names.sort(String::compareToIgnoreCase);
+        return names;
+    }
+
+    private void onSuccess(String output, int errors) {
+        String text = errors == 0 ? "Fertig!"
+                : "Fertig, aber das Log enthält " + errors + " Fehlermeldung(en) (Zeilen mit „ERROR“).\n"
+                  + "Die betroffenen Dateien oder Gebäude sind unvollständig, Details stehen im Log.";
+        int type = errors == 0 ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE;
+        if (!Desktop.isDesktopSupported()) {
+            if (errors > 0) JOptionPane.showMessageDialog(frame, text, "LoD2 → LoD3", type);
+            return;
+        }
         int choice = JOptionPane.showConfirmDialog(frame,
-                "Fertig! Ausgabeordner jetzt öffnen?", "LoD2 → LoD3",
-                JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
+                text + (errors == 0 ? " " : "\n\n") + "Ausgabeordner jetzt öffnen?", "LoD2 → LoD3",
+                JOptionPane.YES_NO_OPTION, type);
         if (choice == JOptionPane.YES_OPTION) {
             try {
                 Desktop.getDesktop().open(Path.of(output).toFile());
@@ -579,6 +674,7 @@ public final class Lod2Lod3Gui {
     }
 
     private void appendLog(String line) {
+        if (line.contains(" ERROR ")) errorLines.incrementAndGet();
         if (logArea == null) {
             synchronized (pendingLog) {
                 pendingLog.add(line);

@@ -169,7 +169,8 @@ public final class WallCuttingUtils {
         if (pts.size() < 3 || cutZValues.isEmpty()) return null;
 
         GeometryUtils.BottomEdge edge = GeometryUtils.findBottomEdge(pts);
-        if (edge == null) return null;
+        // Entarteter Splitter (Unterkante aus zwei lagegleichen Punkten): keine Wandrichtung — Wand bleibt ungeschnitten.
+        if (edge == null || !(edge.wallLength() > 0)) return null;
         double dx = edge.end().x - edge.start().x;
         double dy = edge.end().y - edge.start().y;
         double dirX = dx / edge.wallLength();

@@ -103,22 +103,33 @@ public final class SlabClippingUtils {
                 try {
                     union = union.union(jtsPoly);
                 } catch (RuntimeException e) {
-                    // Bekanntes JTS-Overlay-Robustheitsproblem ("non-noded intersection" bei
-                    // fast-deckungsgleichen, aber nicht exakt identischen Sub-mm-Segmenten,
-                    // beobachtet 33_408_5654 bei einem kompletten Dresden-Lauf, 2026-09-02).
-                    // Dieses eine Dachstueck NICHT von der Ausschlussflaeche ausnehmen (union
-                    // bleibt auf dem bisherigen Stand) statt das gesamte Gebaeude/die gesamte
-                    // Kachel abstuerzen zu lassen — analog zum bestehenden JTS-Fallback in
-                    // clipSlabAtZ. Konservativ: die betroffene Slab-Flaeche bleibt dadurch an
-                    // dieser einen Stelle ggf. geringfuegig zu gross statt korrekt um dieses eine
-                    // Dachstueck verkleinert zu werden.
-                    log.warn("  roofAreaBelowZ: JTS-Union fehlgeschlagen bei z={} ({}), "
-                                    + "Dachstueck uebersprungen (Ausschlussflaeche bleibt unveraendert)",
-                            GeometryUtils.formatNum(z), e.toString());
+                    // "non-noded intersection" bei fast deckungsgleichen Sub-mm-Segmenten (haeufig bei
+                    // Schnitthoehen oberhalb der Traufe): robuste Overlay-Variante mit Snapping.
+                    try {
+                        union = org.locationtech.jts.operation.overlayng.OverlayNGRobust.overlay(
+                                polygonal(union), polygonal(jtsPoly),
+                                org.locationtech.jts.operation.overlayng.OverlayNG.UNION);
+                    } catch (RuntimeException e2) {
+                        // Letzter Ausweg: Dachstueck auslassen statt Gebaeude/Kachel abstuerzen zu lassen
+                        // (Slab bleibt an dieser Stelle ggf. zu gross).
+                        log.warn("  roofAreaBelowZ: JTS-Union fehlgeschlagen bei z={} ({}), "
+                                        + "Dachstueck uebersprungen (Ausschlussflaeche bleibt unveraendert)",
+                                GeometryUtils.formatNum(z), e2.toString());
+                    }
                 }
             }
         }
         return union;
+    }
+
+    /** Nur die gueltigen Flaechenanteile — die robuste Overlay-Variante akzeptiert weder gemischte
+     * (Flaeche + Linienreste entarteter Dachstuecke) noch ungueltige Eingaben. */
+    private static org.locationtech.jts.geom.Geometry polygonal(org.locationtech.jts.geom.Geometry g) {
+        org.locationtech.jts.geom.Geometry valid =
+                g.isValid() ? g : org.locationtech.jts.geom.util.GeometryFixer.fix(g);
+        org.locationtech.jts.geom.Geometry polys = valid.getFactory().buildGeometry(
+                org.locationtech.jts.geom.util.PolygonExtracter.getPolygons(valid));
+        return polys.isValid() ? polys : org.locationtech.jts.operation.overlayng.OverlayNGRobust.union(polys);
     }
 
     /** Baut ein JTS-Polygon (2D, Z wird verworfen) aus offenen Punktlisten; null bei Entartung. */
@@ -152,6 +163,10 @@ public final class SlabClippingUtils {
     /** Zerlegt ein JTS-Differenz-Ergebnis (Polygon oder MultiPolygon) in {@link SlabPiece}s auf
      * Hoehe z; zu kleine Teilstuecke/Loecher (Zuschnitt-Artefakte) werden verworfen. */
     private static List<SlabPiece> toSlabPieces(org.locationtech.jts.geom.Geometry result, double z) {
+        return toSlabPieces(result, z, true);
+    }
+
+    private static List<SlabPiece> toSlabPieces(org.locationtech.jts.geom.Geometry result, double z, boolean sanitize) {
         List<SlabPiece> pieces = new ArrayList<>();
         for (int i = 0; i < result.getNumGeometries(); i++) {
             if (!(result.getGeometryN(i) instanceof org.locationtech.jts.geom.Polygon jtsPoly)) continue;
@@ -163,9 +178,107 @@ public final class SlabClippingUtils {
                 List<Point3D> hole = toOpenRing(jtsPoly.getInteriorRingN(h), z);
                 if (hole.size() >= 3 && GeometryUtils.calculatePolygonArea2D(hole) >= MIN_SLAB_AREA) interiors.add(hole);
             }
-            pieces.add(new SlabPiece(exterior, interiors));
+            SlabPiece piece = new SlabPiece(exterior, interiors);
+            if (sanitize) pieces.addAll(sanitizeSlabPiece(piece, z, true));
+            else pieces.add(piece);
         }
         return pieces;
+    }
+
+    /** CityDoctor2 prueft Ringe auf mm gerundet: ein Eckpunkt naeher als diese Toleranz an einer nicht
+     *  angrenzenden Kante gilt dort als Selbstberuehrung (GE_R_SELF_INTERSECTION). */
+    private static final double SLAB_NEAR_TOUCH_TOL = 0.001;
+    /** Deckenstuecke: groessere Toleranz — auch mm-Zacken (Eckpunkt 1–5 mm neben einer Kante) meldet
+     *  CityDoctor2 nach dem Runden als Selbstberuehrung; Decken sind nicht Teil der Huelle. */
+    private static final double SLAB_SPIKE_TOL = 0.005;
+
+    /** Zuschnitte gegen duenne Dach-Ausschlussstreifen (z.B. knapp ueber einer Traufe) koennen
+     *  Rueckwaerts-Spitzen enthalten, deren Eckpunkt im Sub-mm-Bereich an einer anderen Kante liegt —
+     *  geometrisch gueltig, fuer CityDoctor2 selbstberuehrend. Nur solche Stuecke werden bereinigt
+     *  (Spitzen entfernen, notfalls JTS-GeometryFixer, sonst verwerfen); alle anderen bleiben exakt
+     *  unveraendert. Boden und Decke derselben Hoehe durchlaufen denselben Weg (XLink bleibt konsistent). */
+    private static List<SlabPiece> sanitizeSlabPiece(SlabPiece piece, double z, boolean allowFixer) {
+        List<Point3D> ext = GeometryUtils.dedupConsecutive(piece.exterior(), GeometryUtils.SLAB_RING_DEDUP_TOL);
+        if (ext.size() >= 3 && !slabRingTouchesItself(ext, SLAB_SPIKE_TOL)) return List.of(piece);
+
+        List<Point3D> cleaned = removeSlabSpikes(ext, SLAB_SPIKE_TOL);
+        if (cleaned.size() >= 3 && !slabRingTouchesItself(cleaned, SLAB_SPIKE_TOL)
+                && GeometryUtils.calculatePolygonArea2D(cleaned) >= MIN_SLAB_AREA) {
+            log.debug("  Deckenstueck bei z={}: {} Spitzen-/Zwischenpunkte entfernt",
+                    GeometryUtils.formatNum(z), ext.size() - cleaned.size());
+            return List.of(new SlabPiece(cleaned, piece.interiors()));
+        }
+        if (allowFixer && cleaned.size() >= 3) {
+            try {
+                org.locationtech.jts.geom.Polygon jp = toJts(cleaned, piece.interiors());
+                if (jp != null) {
+                    List<SlabPiece> out = new ArrayList<>();
+                    for (SlabPiece p : toSlabPieces(org.locationtech.jts.geom.util.GeometryFixer.fix(jp), z, false)) {
+                        out.addAll(sanitizeSlabPiece(p, z, false));
+                    }
+                    if (!out.isEmpty()) return out;
+                }
+            } catch (RuntimeException e) {
+                log.debug("  Deckenstueck bei z={}: GeometryFixer fehlgeschlagen ({})", GeometryUtils.formatNum(z), e.toString());
+            }
+        }
+        log.warn("  Deckenstueck bei z={} beruehrt sich selbst und ist nicht reparierbar — verworfen", GeometryUtils.formatNum(z));
+        return List.of();
+    }
+
+    /** true, wenn ein Eckpunkt des offenen, horizontalen Rings naeher als {@link #SLAB_NEAR_TOUCH_TOL}
+     *  an einer nicht angrenzenden Kante liegt oder sich Kanten kreuzen. */
+    static boolean slabRingTouchesItself(List<Point3D> ring) {
+        return slabRingTouchesItself(ring, SLAB_NEAR_TOUCH_TOL);
+    }
+
+    static boolean slabRingTouchesItself(List<Point3D> ring, double tol) {
+        int n = ring.size();
+        if (n < 3) return true;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                int j2 = (j + 1) % n;
+                if (j == i || j2 == i) continue;
+                if (distPointSegment2D(ring.get(i), ring.get(j), ring.get(j2)) < tol) return true;
+            }
+        }
+        org.locationtech.jts.geom.Coordinate[] c = new org.locationtech.jts.geom.Coordinate[n + 1];
+        for (int i = 0; i < n; i++) c[i] = new org.locationtech.jts.geom.Coordinate(ring.get(i).x, ring.get(i).y);
+        c[n] = c[0];
+        return !new org.locationtech.jts.geom.GeometryFactory().createLineString(c).isSimple();
+    }
+
+    /** Entfernt Rueckwaerts-Spitzen (Pfad laeuft zu einem Punkt und auf derselben Linie zurueck) sowie
+     *  nahezu kollineare Zwischenpunkte aus einem offenen, horizontalen Ring. */
+    static List<Point3D> removeSlabSpikes(List<Point3D> ring) {
+        return removeSlabSpikes(ring, SLAB_NEAR_TOUCH_TOL);
+    }
+
+    static List<Point3D> removeSlabSpikes(List<Point3D> ring, double tol) {
+        List<Point3D> r = new ArrayList<>(ring);
+        boolean changed = true;
+        while (changed && r.size() > 3) {
+            changed = false;
+            for (int i = 0; i < r.size() && r.size() > 3; i++) {
+                int n = r.size();
+                Point3D a = r.get((i + n - 1) % n), b = r.get(i), c = r.get((i + 1) % n);
+                if (distPointSegment2D(c, a, b) < tol
+                        || distPointSegment2D(a, b, c) < tol
+                        || distPointSegment2D(b, a, c) < tol) {
+                    r.remove(i);
+                    i--;
+                    changed = true;
+                }
+            }
+        }
+        return r;
+    }
+
+    private static double distPointSegment2D(Point3D p, Point3D a, Point3D b) {
+        double dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+        double t = len2 < 1e-18 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+        double ex = p.x - (a.x + t * dx), ey = p.y - (a.y + t * dy);
+        return Math.sqrt(ex * ex + ey * ey);
     }
 
     /** JTS-Ring (geschlossen) als offene Punktliste auf Hoehe z. */
@@ -176,6 +289,69 @@ public final class SlabClippingUtils {
             pts.add(new Point3D(coords[i].x, coords[i].y, z));
         }
         return pts;
+    }
+
+    /** Vereinigt mehrere Grundriss-Ringe (XY) zu ihren zusammenhaengenden Aussenkonturen —
+     *  innenliegende Trennkanten UND mm-Sliver zwischen angrenzenden Polygonen verschwinden
+     *  (Keller bei mehreren GroundSurfaces, siehe Doku.md). Ergebnis: offene Ringe, Umlaufsinn
+     *  wie der erste Eingabering, Z vom ersten Eingabepunkt. Null = Vereinigung nicht moeglich
+     *  (JTS-Fehler, Loecher im Ergebnis, entartete Eingabe) — Aufrufer bleibt bei den
+     *  Einzelpolygonen. */
+    public static List<List<Point3D>> unionFootprints(List<List<Point3D>> rings) {
+        if (rings == null || rings.size() < 2) return null;
+        try {
+            List<org.locationtech.jts.geom.Geometry> polys = new ArrayList<>();
+            for (List<Point3D> r : rings) {
+                org.locationtech.jts.geom.Polygon p = toJts(r, List.of());
+                if (p == null) return null;
+                polys.add(p);
+            }
+            org.locationtech.jts.geom.Geometry union =
+                    org.locationtech.jts.operation.union.UnaryUnionOp.union(polys);
+            if (union == null || union.isEmpty()) return null;
+            boolean ccw = org.locationtech.jts.algorithm.Orientation.isCCW(
+                    ((org.locationtech.jts.geom.Polygon) polys.get(0)).getExteriorRing().getCoordinates());
+            double z = rings.get(0).get(0).z;
+            List<List<Point3D>> out = new ArrayList<>();
+            for (int i = 0; i < union.getNumGeometries(); i++) {
+                if (!(union.getGeometryN(i) instanceof org.locationtech.jts.geom.Polygon jp)) return null;
+                if (jp.getNumInteriorRing() > 0) return null;
+                List<Point3D> ring = toOpenRing(jp.getExteriorRing(), z);
+                // JTS-gueltig, aber im mm-Raster (CityDoctor2) selbstberuehrend: Einzelpolygone behalten.
+                if (ring.size() < 3 || slabRingTouchesItself(ring)) return null;
+                if (org.locationtech.jts.algorithm.Orientation.isCCW(jp.getExteriorRing().getCoordinates()) != ccw) {
+                    java.util.Collections.reverse(ring);
+                }
+                out.add(ring);
+            }
+            return out;
+        } catch (RuntimeException e) {
+            log.warn("  unionFootprints: JTS-Vereinigung fehlgeschlagen ({}), Einzelpolygone bleiben", e.toString());
+            return null;
+        }
+    }
+
+    /** Fitzelchen-Gate: true, wenn die vereinigten Teilstuecke mindestens einen zusammenhaengenden
+     *  Bereich mit Flaeche >= minArea bilden, der irgendwo mindestens 2 x halfWidth breit ist. */
+    public static boolean hasSubstantialRegion(List<SlabPiece> pieces, double minArea, double halfWidth) {
+        try {
+            List<org.locationtech.jts.geom.Geometry> polys = new ArrayList<>();
+            for (SlabPiece p : pieces) {
+                org.locationtech.jts.geom.Polygon jp = toJts(p.exterior(), p.interiors());
+                if (jp != null) polys.add(jp);
+            }
+            if (polys.isEmpty()) return false;
+            org.locationtech.jts.geom.Geometry union =
+                    org.locationtech.jts.operation.union.UnaryUnionOp.union(polys);
+            for (int i = 0; i < union.getNumGeometries(); i++) {
+                org.locationtech.jts.geom.Geometry g = union.getGeometryN(i);
+                if (g.getArea() >= minArea && !g.buffer(-halfWidth).isEmpty()) return true;
+            }
+            return false;
+        } catch (RuntimeException e) {
+            log.warn("  hasSubstantialRegion: JTS-Fehler ({}), Bereich gilt als zu klein", e.toString());
+            return false;
+        }
     }
 
     /** 2D-Nettoflaeche eines Teilstuecks (Aussenring minus Loecher). */

@@ -503,6 +503,8 @@ public class BalconyGenerator extends AbstractGenerator<BalconyGenerator.Generat
         double doorOffset = galleryOffset + g.distDoorGallery();
         doorOffset = Math.max(galleryOffset, Math.min(doorOffset, galleryOffset + g.gaLen() - g.doorWidth()));
         if (!OpeningUtils.openingInsideWall2D(doorOffset, doorOffset + g.doorWidth(),
+                g.doorBottomZ() - g.zMin(), g.doorTopZ() - g.zMin(), g.wallPoly2D())
+                || OpeningUtils.wallContourEntersOpening(doorOffset, doorOffset + g.doorWidth(),
                 g.doorBottomZ() - g.zMin(), g.doorTopZ() - g.zMin(), g.wallPoly2D())) {
             stats.balconiesSkippedOutside++;
             return false;

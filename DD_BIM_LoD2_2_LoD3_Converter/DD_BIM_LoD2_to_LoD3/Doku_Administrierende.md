@@ -88,7 +88,11 @@ Für Nutzende ohne CMD/PowerShell/IDE — z. B. Projektpartner — gibt es eine 
 6. **Erweiterte Optionen** (aufklappbar): einzelne Pipeline-Schritte abwählen, siehe unten.
 7. **Konvertierung starten** — Fortschrittsbalken (bei Batch mit echtem „Datei X von Y", bei Einzeldatei mit echtem „Gebäude X von Y" nach kurzem Vorab-Zähllauf) und Live-Log. Am Ende Option, den Ausgabeordner direkt zu öffnen.
 
-**Eingabeprüfung beim Start:** Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…" ist keine .gml-Datei." ab, wenn die Eingabe nicht auf `.gml` endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige `.gml`-Datei enthält; sonstige (sichtbare) Nicht-`.gml`-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen" ins Log geschrieben. Versteckte Dateien (z. B. `Thumbs.db`) und Unterordner lösen keinen Hinweis aus.
+**Auswahldialoge:** Jeder „Durchsuchen“-Dialog öffnet sich im Ordner des aktuellen Feldeintrags. Ist das Feld leer, öffnet er sich im zuletzt gewählten Ordner, auch nach einem Neustart der Anwendung. Wer also zuerst die CityGML-Datei wählt, landet beim JSON-, DGM- oder Ausgabe-Dialog direkt in deren Ordner.
+
+**Eingabeprüfung beim Start:** Im Einzeldatei-Modus bricht die GUI mit dem Hinweis „Die gewählte Datei „…" ist keine .gml-Datei." ab, wenn die Eingabe nicht auf `.gml` endet. Im Batch-Modus wird abgebrochen, wenn der Ordner keine einzige `.gml`-Datei enthält; sonstige (sichtbare) Nicht-`.gml`-Dateien im Ordner werden verarbeitet, aber jeweils mit Namen als „wird übersprungen" ins Log geschrieben. Versteckte Dateien (z. B. `Thumbs.db`) und Unterordner lösen keinen Hinweis aus. Ebenso wird abgebrochen, wenn der JSON-Modulordner keine `.json`-Datei enthält.
+
+**Meldungen nach dem Start:** Bei einem Abbruch nennt der Fehlerdialog die eigentliche Ursache und gegebenenfalls unvollständig geschriebene Ausgabedateien. Enthält das Log `ERROR`-Zeilen (z. B. eine gescheiterte Kachel im Ordner-Modus oder eine fehlerhafte Moduldatei), meldet die GUI am Ende „Fertig mit Fehlern“ statt „Erfolgreich abgeschlossen“. Alle Meldungen mit Bedeutung und Abhilfe: [Doku_Benutzende.md](Doku_Benutzende.md), Abschnitt „Meldungen des Programms“.
 
 ### Erweiterte Optionen: einzelne Schritte abwählen
 
@@ -104,7 +108,7 @@ Technische Details zur GUI (Bibliotheken, Architektur, warum das Abwählen gefah
 
 ## JSON-Baukörpermodule
 
-Jedes Gebäude wird über sein `sst`-Attribut einem Modul (`{sst}.json` im JSON-Ordner) zugeordnet. `ModuleParametersLoader` matcht dabei auch ohne `_4`-Suffix (`MRG3_4.json` ist unter `MRG3` UND `MRG3_4` auffindbar). Fehlt eine passende Datei, wird `_default.json` verwendet.
+Jedes Gebäude wird über sein `sst`-Attribut einem Modul (`{sst}.json` im JSON-Ordner) zugeordnet. `ModuleParametersLoader` matcht dabei auch ohne `_4`-Suffix (`MRG3_4.json` ist unter `MRG3` UND `MRG3_4` auffindbar). Fehlt eine passende Datei oder das `sst`-Attribut, bekommt das Gebäude keine LoD3-Details, ohne Meldung im Log. Eine Ersatz-Moduldatei gibt es nicht.
 
 ### Kategorien im Überblick
 
@@ -241,7 +245,9 @@ D:\Tools\citygml-tools-2.5.0\citygml-tools to-cityjson -o cityjson_out/ output.g
 D:\Tools\val3dity-win64\val3dity.exe cityjson_out/output.json
 ```
 
-Ohne `--overlap_tol`-Option ausführen — die Option ist bei Mehrteil-Gebäuden auf größeren Kacheln instabil (siehe Programmierenden-Doku). Ergebnis-Interpretation: siehe Benutzenden-Doku.
+Ohne `--overlap_tol`-Option ausführen — die Option ist bei Mehrteil-Gebäuden auf größeren Kacheln instabil (siehe Programmierenden-Doku); für einzelne Gebäude funktioniert sie. Fehler je Gebäude liefert `--verbose` (die Option `--report` schreibt in der Windows-Beta eine leere Datei). Ergebnis-Interpretation: siehe Benutzenden-Doku.
+
+**Vorher/nachher-Vergleiche:** Beide Werkzeuge prüfen die Gebäudehülle erst, wenn die einzelnen Flächen fehlerfrei sind. Behebt eine Änderung einen Flächenfehler, können dadurch bereits vorhandene Hüllenfehler erstmals gemeldet werden. Neue Meldungen deshalb immer gebäudeweise gegen den Vorzustand und das LoD2-Original prüfen, bevor sie als Verschlechterung gewertet werden.
 
 ### CityDoctor2 (semantische Prüfung)
 
@@ -254,9 +260,13 @@ java -cp "D:\Tools\CityDoctorGUI-3.18.2-win\app\*" de.hft.stuttgart.citydoctor2.
 
 **Wichtig:** aus dem Verzeichnis `D:\Tools\CityDoctorGUI-3.18.2-win\` heraus starten — die Konfiguration referenziert `schematronPath: checkForSolid.xml` relativ, die Datei liegt nur dort. Enthält der Konfigurationspfad Umlaute, kann das bei Aufruf aus einem PowerShell-Subprozess zu `FileNotFoundException` führen (Windows-Codepage-Problem über mehrere Prozessebenen) — im Zweifel einen umlautfreien Kopie-Pfad verwenden.
 
+**Nicht vollständig deterministisch:** bei grenzwertigen Planaritätsfällen kann CityDoctor2 dieselbe Kachel in zwei Läufen unterschiedlich bewerten (beobachtet 2026-09-11 bei `DESNALK0pF001gGp`: drei 2–4 mm verdrehte Dachflächen in einem Lauf gemeldet, im nächsten nicht, Geometrie identisch). Bei A/B-Vergleichen eine einzelne abweichende Meldung deshalb erst per Wiederholungslauf bestätigen, bevor sie einer Codeänderung zugeschrieben wird.
+
 ---
 
 ## Troubleshooting
+
+Meldungen der GUI und des Logs mit Bedeutung und Abhilfe: [Doku_Benutzende.md](Doku_Benutzende.md), Abschnitt „Meldungen des Programms“.
 
 ### Gebäude bekommt keinen Keller / keine Geschossunterteilung
 

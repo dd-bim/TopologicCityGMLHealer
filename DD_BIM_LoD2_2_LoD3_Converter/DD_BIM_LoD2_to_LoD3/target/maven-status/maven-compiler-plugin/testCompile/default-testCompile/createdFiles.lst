@@ -1,6 +1,9 @@
+de\mpsc\lod2tolod3\StoreyGeneratorUpperStoreyTest.class
 de\mpsc\lod2tolod3\util\CityGmlUtilsRoofPlaneTest.class
 de\mpsc\lod2tolod3\util\CityGmlUtilsOpeningClearanceTest.class
 de\mpsc\lod2tolod3\util\CityGmlUtilsPartyWallTest.class
+de\mpsc\lod2tolod3\util\CityGmlUtilsFootprintUnionTest.class
+de\mpsc\lod2tolod3\util\CityGmlUtilsWallCutTest.class
 de\mpsc\lod2tolod3\util\CityGmlUtilsSlabClipTest.class
 de\mpsc\lod2tolod3\util\CityGmlUtilsBottomEdgeTest.class
-de\mpsc\lod2tolod3\util\CityGmlUtilsWallCutTest.class
+de\mpsc\lod2tolod3\util\CityGmlUtilsSlabSpikeTest.class

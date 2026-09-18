@@ -111,4 +111,28 @@ class CityGmlUtilsOpeningClearanceTest {
         assertFalse(OpeningUtils.overlapsAnyOpeningRect(EXISTING_WINDOW, 5, 6, 2, 4),
                 "Oeffnung mit echtem horizontalem Abstand darf nicht blockieren");
     }
+
+    // Dachflaeche mit vorhandenem Gauben-Ausschnitt (Loch) bei u=[2,6], v=[1,4] — nachgebildet nach
+    // Face_0005L72_0_2: das Dachfenster landete mitten im Loch (GE_P_INNER_RINGS_NESTED).
+    private static final List<double[][]> DORMER_HOLE = List.<double[][]>of(new double[][]{{2, 1}, {6, 1}, {6, 4}, {2, 4}});
+
+    @Test
+    void rejectsOpeningInsideExistingHole() {
+        assertTrue(OpeningUtils.openingTouchesHoles2D(3, 4, 1.5, 3, DORMER_HOLE),
+                "Fenster innerhalb eines vorhandenen Lochs muss abgelehnt werden");
+    }
+
+    @Test
+    void rejectsOpeningTouchingExistingHole() {
+        assertTrue(OpeningUtils.openingTouchesHoles2D(6.01, 7, 1.5, 3, DORMER_HOLE),
+                "Fenster naeher als der Sicherheitsabstand an einem Loch muss abgelehnt werden");
+    }
+
+    @Test
+    void allowsOpeningAwayFromExistingHole() {
+        assertFalse(OpeningUtils.openingTouchesHoles2D(7, 8, 1.5, 3, DORMER_HOLE),
+                "Fenster mit echtem Abstand zum Loch darf nicht blockieren");
+        assertFalse(OpeningUtils.openingTouchesHoles2D(3, 4, 1.5, 3, List.of()),
+                "Ohne Loecher darf nichts blockieren");
+    }
 }

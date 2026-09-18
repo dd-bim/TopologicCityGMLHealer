@@ -5,6 +5,7 @@ import de.mpsc.lod2tolod3.util.BuildingQueryUtils;
 import de.mpsc.lod2tolod3.util.CityGmlUtils;
 import de.mpsc.lod2tolod3.util.GeometryUtils;
 import de.mpsc.lod2tolod3.util.Point3D;
+import de.mpsc.lod2tolod3.util.SlabClippingUtils;
 import de.mpsc.lod2tolod3.util.SolidShellUtils;
 import de.mpsc.lod2tolod3.util.DgmLoader;
 import de.mpsc.lod2tolod3.util.DgmProvider;
@@ -24,7 +25,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Schritt 2: Keller-Generator. Erzeugt Kellerwaende, -boden, -decke und TIC fuer Gebaeude
@@ -180,12 +183,51 @@ public class BasementGenerator extends AbstractGenerator<BasementGenerator.Gener
         // Boeden/Waenden an die Boundaries gehaengt (stabile Element-Reihenfolge im GML).
         List<AbstractSpaceBoundaryProperty> ceilings = new ArrayList<>();
 
-        for (Polygon groundPoly : groundPolygons) {
-            // Nur entduplizieren, KEIN kollineares Mergen (desynchronisiert sonst geteilte Kanten zu GF-Waenden).
-            List<Point3D> groundPoints =
-                    GeometryUtils.dedupConsecutive(GeometryUtils.toPoints(groundPoly), GeometryUtils.POINT_MERGE_TOL);
-            if (groundPoints.size() < 3) continue;
+        // Grundriss-Ringe (nur entduplizieren, KEIN kollineares Mergen — desynchronisiert sonst
+        // geteilte Kanten zu GF-Waenden). Bei mehreren terrain-nahen Grundriss-Polygonen desselben
+        // Targets (ein Gebaeude mit mehreren GroundSurfaces, keine BuildingParts) EIN Keller aus
+        // der JTS-Vereinigung: innenliegende Trennkanten und mm-Sliver zwischen den Polygonen
+        // verschwinden, statt als Phantom-Kellerwaende bzw. offene Naehte in der Huelle zu landen
+        // (gJv, siehe Doku.md "Keller bei mehreren GroundSurfaces"). Gelingt die Vereinigung
+        // nicht (JTS-Fehler, Loecher) oder aendert sie nichts (getrennte Polygone), bleiben die
+        // Einzelpolygone; exakt geteilte Innenkanten werden dann unten uebersprungen.
+        List<List<Point3D>> footprintRings = new ArrayList<>();
+        for (Polygon gp : groundPolygons) {
+            List<Point3D> pts = GeometryUtils.dedupConsecutive(GeometryUtils.toPoints(gp), GeometryUtils.POINT_MERGE_TOL);
+            if (pts.size() >= 3) footprintRings.add(pts);
+        }
+        List<Polygon> ticPolygons = groundPolygons;
+        if (footprintRings.size() > 1) {
+            List<List<Point3D>> merged = SlabClippingUtils.unionFootprints(footprintRings);
+            if (merged != null && merged.size() < footprintRings.size()) {
+                footprintRings = new ArrayList<>();
+                ticPolygons = new ArrayList<>();
+                for (List<Point3D> ring : merged) {
+                    List<Point3D> closed = new ArrayList<>(ring);
+                    closed.add(ring.get(0));
+                    footprintRings.add(closed);
+                    ticPolygons.add(GeometryUtils.createPolygon(new ArrayList<>(closed)));
+                }
+                stats.footprintsMerged++;
+                log.debug("  {} Grundriss-Polygone zu {} Kellerfussabdruck(en) vereinigt", groundPolygons.size(), merged.size());
+            }
+        }
 
+        // Innenliegende Trennkanten (nur noch relevant, wenn keine Vereinigung stattfand): grenzen
+        // zwei Ringe exakt aneinander (gleiche Kante in beiden, mm-gerundet), gehoert dort keine
+        // Kellerwand hin — sonst zwei deckungsgleiche, gegenlaeufige Waende (GE_S_NON_MANIFOLD_EDGE).
+        Map<String, Integer> groundEdgeUse = new HashMap<>();
+        if (footprintRings.size() > 1) {
+            for (List<Point3D> ring : footprintRings) {
+                List<Point3D> pts = GeometryUtils.removeClosingPoint(ring);
+                for (int i = 0; i < pts.size(); i++) {
+                    groundEdgeUse.merge(interiorEdgeKey(pts.get(i), pts.get((i + 1) % pts.size())), 1, Integer::sum);
+                }
+            }
+        }
+        int interiorEdgesSkipped = 0;
+
+        for (List<Point3D> groundPoints : footprintRings) {
             floorCount++;
 
             // ── Kellerboden als GroundSurface (physische Bodenplatte) ──
@@ -213,9 +255,13 @@ public class BasementGenerator extends AbstractGenerator<BasementGenerator.Gener
             List<Point3D> topProjected = GeometryUtils.projectToZ(groundPoints, basementTopZ);
             List<Point3D> topNoClose = GeometryUtils.removeClosingPoint(topProjected);
             for (int i = 0; i < topNoClose.size(); i++) {
-                wallCount++;
                 Point3D a = topNoClose.get(i);
                 Point3D b = topNoClose.get((i + 1) % topNoClose.size());
+                if (groundEdgeUse.getOrDefault(interiorEdgeKey(a, b), 0) > 1) {
+                    interiorEdgesSkipped++;
+                    continue; // innenliegende Trennkante, keine Aussenwand
+                }
+                wallCount++;
                 Point3D aDown = new Point3D(a.x, a.y, basementFloorZ);
                 Point3D bDown = new Point3D(b.x, b.y, basementFloorZ);
 
@@ -274,7 +320,7 @@ public class BasementGenerator extends AbstractGenerator<BasementGenerator.Gener
 
         // === TerrainIntersectionCurve (TIC): ohne DGM flacher Ring, mit DGM bilinear interpoliert ===
         MultiCurveProperty tic = SolidShellUtils.createTerrainIntersectionCurve(
-                groundPolygons, hDgm, dgm);
+                ticPolygons, hDgm, dgm);
         if (tic != null) {
             target.setLod3TerrainIntersectionCurve(tic);
             stats.ticsCreated++;
@@ -283,12 +329,23 @@ public class BasementGenerator extends AbstractGenerator<BasementGenerator.Gener
         // === Ergebnis ===
         CityGmlUtils.addStringAttribute(target, BASEMENT_MARKER, "generated");
         stats.basementsAdded++;
+        stats.interiorEdgesSkipped += interiorEdgesSkipped;
 
-        log.info("  => {} Kellerwaende, {} GroundSurfaces, {} Decken, {} alte GS entfernt, TIC={}",
-                wallCount, floorCount, ceilingCount, gsToRemove.size(), tic != null);
+        log.info("  => {} Kellerwaende, {} GroundSurfaces, {} Decken, {} alte GS entfernt, TIC={}, {} Innenkanten ohne Wand{}",
+                wallCount, floorCount, ceilingCount, gsToRemove.size(), tic != null, interiorEdgesSkipped,
+                ticPolygons != groundPolygons ? ", Grundrisse vereinigt" : "");
     }
 
     // ==================== Hilfsmethoden ====================
+
+    /** Ungerichteter XY-Schluessel einer Grundriss-Kante (mm-gerundet, Endpunkte sortiert), um
+     *  dieselbe Kante in zwei aneinandergrenzenden Grundriss-Polygonen wiederzuerkennen. */
+    private static String interiorEdgeKey(Point3D a, Point3D b) {
+        long ax = Math.round(a.x * 1000), ay = Math.round(a.y * 1000);
+        long bx = Math.round(b.x * 1000), by = Math.round(b.y * 1000);
+        boolean swap = ax > bx || (ax == bx && ay > by);
+        return swap ? bx + "," + by + "|" + ax + "," + ay : ax + "," + ay + "|" + bx + "," + by;
+    }
 
     /**
      * Sucht die WindowPreference derjenigen Original-Wand, auf deren Grundkante die gegebene
@@ -347,5 +404,9 @@ public class BasementGenerator extends AbstractGenerator<BasementGenerator.Gener
         public int basementsAdded = 0;
         public int groundSurfacesReplaced = 0;
         public int ticsCreated = 0;
+        /** Innenliegende Trennkanten zwischen angrenzenden Grundriss-Polygonen, an denen bewusst keine Kellerwand erzeugt wurde. */
+        public int interiorEdgesSkipped = 0;
+        /** Keller, deren mehrere Grundriss-Polygone per JTS-Vereinigung zu einem Fussabdruck verschmolzen wurden. */
+        public int footprintsMerged = 0;
     }
 }

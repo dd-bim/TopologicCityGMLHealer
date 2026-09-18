@@ -42,6 +42,17 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
     /** Max. Geschosshoehe bei Flachdach-Fitzelchen-Merge (4.0m), sonst eigenes kurzes Geschoss. */
     private static final double MAX_STOREY_HEIGHT_FLACHDACH = 4.0;
 
+    /** Geschoss oberhalb der Traufe: eine Wand muss mindestens diesen Anteil einer Geschosshoehe
+     *  ueber die Traufe ragen (siehe Doku.md "Geschosse oberhalb der Traufe"). */
+    private static final double UPPER_STOREY_MIN_RISE_FACTOR = 0.75;
+    /** Waagerechte Wand-Oberkante (kein Giebel): die Punkte auf Hoehe zMax liegen mindestens so weit auseinander. */
+    private static final double UPPER_STOREY_MIN_TOP_WIDTH = 1.0;
+    /** Fitzelchen-Gate fuer den Bereich des neuen Geschosses: zusammenhaengende Flaeche und Mindestbreite. */
+    private static final double UPPER_STOREY_MIN_AREA = 8.0;
+    private static final double UPPER_STOREY_MIN_WIDTH = 2.0;
+    /** Kein neu aufgeteiltes Geschoss oberhalb der Traufe niedriger als das. */
+    private static final double UPPER_STOREY_MIN_HEIGHT = 2.0;
+
     public static void main(String[] args) {
         StoreyGenerator gen = new StoreyGenerator();
         try {
@@ -78,16 +89,30 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
         Double hDgm = CityGmlUtils.parseDoubleAttribute(building, "H_DGM");
         if (hDgm == null) return;
 
+        // Eckpunkt-Hoehen aller Gebaeudeteile VOR dem Schneiden (Abstand neuer Grenzen, teiluebergreifend).
+        List<AbstractBuilding> targets = BuildingQueryUtils.getBuildingTargets(building);
+        List<Double> buildingVertexZ = new ArrayList<>();
+        for (var target : targets) {
+            for (Polygon roof : BuildingQueryUtils.collectRoofPolygons(target)) {
+                for (Point3D p : GeometryUtils.toPoints(roof)) buildingVertexZ.add(p.z);
+            }
+            for (var boundary : target.getBoundaries()) {
+                if (!(boundary.getObject() instanceof WallSurface w)) continue;
+                Polygon wp = BuildingQueryUtils.getWallPolygon(w);
+                if (wp != null) for (Point3D p : GeometryUtils.toPoints(wp)) buildingVertexZ.add(p.z);
+            }
+        }
+
         // Solid-Shell immer neu aufbauen, auch bei vorzeitigem Abbruch.
-        for (var target : BuildingQueryUtils.getBuildingTargets(building)) {
-            processAbstractBuilding(target, bp.sst(), hDgm, bp.params(), stats);
+        for (var target : targets) {
+            processAbstractBuilding(target, bp.sst(), hDgm, bp.params(), buildingVertexZ, stats);
             SolidShellUtils.rebuildSolidShell(target);
         }
     }
 
     /** Berechnet Geschossgrenzen fuer ein AbstractBuilding und schneidet dessen Waende entsprechend. */
     private void processAbstractBuilding(AbstractBuilding target, String sst, double hDgm,
-            ModuleParameters params, GenerationStats stats) {
+            ModuleParameters params, List<Double> buildingVertexZ, GenerationStats stats) {
 
         double[] roofZRange = BuildingQueryUtils.getRoofZRange(target);
         if (roofZRange == null) {
@@ -125,9 +150,20 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
         boolean isFlachdach = (firstZ - traufeZ) < FLAT_ROOF_TOLERANCE;
 
         // --- Geschossgrenzen dynamisch berechnen ---
-        List<StoreyInfo> storeys = calculateStoreys(
-                egFloorZ, gfHeight, ufHeight, traufeZ, sst, isFlachdach);
+        List<StoreyInfo> storeys = new ArrayList<>(calculateStoreys(
+                egFloorZ, gfHeight, ufHeight, traufeZ, sst, isFlachdach));
         if (storeys.isEmpty()) return;
+
+        // --- Geschosse oberhalb der Traufe (Fluegel/Turm ohne eigenen BuildingPart) ---
+        // Slab-Begrenzung vorab mit derselben Regel wie unten beim Decken-Aufbau bestimmen.
+        double slabLimitZ = (slopedRawMinRoofZ < Double.MAX_VALUE / 2
+                && slopedRawMinRoofZ > rawMinRoofZ + CUT_TOLERANCE) ? slopedRawMinRoofZ : rawMinRoofZ;
+        boolean slabsLimitedEarly = slabLimitZ < traufeZ - CUT_TOLERANCE
+                || slabLimitZ <= egFloorZ + CUT_TOLERANCE;
+        Set<Double> newCutZ = new HashSet<>();
+        final boolean upperExtended = !isFlachdach
+                && appendUpperStoreys(target, storeys, traufeZ, gfHeight, ufHeight, slabsLimitedEarly,
+                        buildingVertexZ, newCutZ, stats);
 
         String targetId = target.getId() != null ? target.getId() : "unknown";
 
@@ -142,6 +178,13 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
         }
         for (int i = 0; i < storeys.size() - 1; i++) {
             cutZValues.add(storeys.get(i).ceilingZ);
+        }
+
+        // Geschosse, die unterhalb der Traufe beginnen: Zuordnung fuer Waende ohne Schnitt oberhalb der Traufe
+        List<StoreyInfo> lowerStoreys = storeys;
+        if (upperExtended) {
+            lowerStoreys = storeys.stream().filter(s -> s.floorZ < traufeZ - CUT_TOLERANCE).toList();
+            if (lowerStoreys.isEmpty()) lowerStoreys = storeys;
         }
 
         List<AbstractSpaceBoundaryProperty> toRemove = new ArrayList<>();
@@ -182,6 +225,18 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
                 }
             }
 
+            // Neue Grenzen der Geschoss-Erweiterung nur dort schneiden, wo die Schnittlinie die Kontur an
+            // senkrechten Kanten trifft und darueber kein Duennstreifen entsteht — ein Schnitt durch eine
+            // schraege Kante (Giebel, Wand auf der Dachschraege) setzt einen T-Naht-Punkt in die angrenzende
+            // Dachflaeche, einer knapp darunter erzeugt einen Kamm aus Streifen und Zacken (siehe Doku.md).
+            boolean upperCutSkipped = false;
+            if (upperExtended) {
+                List<Point3D> contour = GeometryUtils.removeClosingPoint(wallPoints);
+                upperCutSkipped = applicableCuts.removeIf(
+                        cz -> newCutZ.contains(cz) && slopedEdgeNear(contour, cz, MIN_WALL_SEGMENT_HEIGHT));
+            }
+            List<StoreyInfo> tagStoreys = upperCutSkipped ? lowerStoreys : storeys;
+
             // Duennstreifen-Vermeidung: letzten Schnitt entfernen wenn er ein zu duennes Segment erzeugt.
             if (!applicableCuts.isEmpty()) {
                 double lastCut = applicableCuts.get(applicableCuts.size() - 1);
@@ -219,7 +274,7 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
                     wallMinZ = zRange[0];
                     wallMaxZ = zRange[1];
                 }
-                StoreyInfo storey = findStoreyForZ(storeys, (wallMinZ + wallMaxZ) / 2.0);
+                StoreyInfo storey = findStoreyForZ(tagStoreys, (wallMinZ + wallMaxZ) / 2.0);
                 if (storey != null) {
                     assignGeschossToExistingWall(wall, storey);
                     segmentsCreated++;
@@ -264,7 +319,7 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
                     wallMinZ = trimmedZRange[0];
                     wallMaxZ = trimmedZRange[1];
                 }
-                StoreyInfo storey = findStoreyForZ(storeys, (wallMinZ + wallMaxZ) / 2.0);
+                StoreyInfo storey = findStoreyForZ(tagStoreys, (wallMinZ + wallMaxZ) / 2.0);
                 if (storey != null) {
                     assignGeschossToExistingWall(wall, storey);
                     segmentsCreated++;
@@ -325,8 +380,8 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
 
                 Polygon segPoly = GeometryUtils.createPolygon(segPoints);
 
-                StoreyInfo storey = findStoreyForZ(storeys, segMidZ);
-                if (storey == null) storey = storeys.get(storeys.size() - 1);
+                StoreyInfo storey = findStoreyForZ(tagStoreys, segMidZ);
+                if (storey == null) storey = tagStoreys.get(tagStoreys.size() - 1);
 
                 boolean isTopSegment = (segZ[1] >= keptMaxTop - CUT_TOLERANCE);
 
@@ -481,7 +536,10 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
             }
         }
 
-        boolean isMixedRoof = flatRoofCount > 0 && !slopedRoofPolygons.isEmpty();
+        // Nicht fuer ueber die Traufe erweiterte Gebaeude: das oberste Geschoss endet dann oberhalb der
+        // Traufe, projizierte Schraegflaechen laegen dort teils ausserhalb des Volumens — die Decke
+        // entsteht stattdessen regulaer per Zuschnitt (Giebel-Zweig unten).
+        boolean isMixedRoof = !upperExtended && flatRoofCount > 0 && !slopedRoofPolygons.isEmpty();
         if (isMixedRoof) {
             log.debug("  Mischdach erkannt fuer {}: {} flache + {} geneigte Dachflaechen",
                     targetId, flatRoofCount, slopedRoofPolygons.size());
@@ -581,6 +639,14 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
                 // sein als der Boden desselben Geschosses, siehe oben).
                 List<SlabPiece> ceilingPieces = SlabClippingUtils.clipSlabAtZ(
                         groundPoints, roofPolygons, storey.ceilingZ, CUT_TOLERANCE);
+                // Oberstes Geschoss oberhalb der Traufe: das Dach schliesst es ohnehin, nur ausreichend grosse
+                // Deckenstuecke unter hoeheren Dachteilen anlegen (kein Folge-Boden verweist darauf).
+                if (upperExtended && storey.isTopStorey) {
+                    ceilingPieces = ceilingPieces.stream()
+                            .filter(p -> SlabClippingUtils.hasSubstantialRegion(
+                                    List.of(p), UPPER_STOREY_MIN_AREA, UPPER_STOREY_MIN_WIDTH / 2))
+                            .toList();
+                }
 
                 for (int pieceIdx = 0; pieceIdx < ceilingPieces.size(); pieceIdx++) {
                     SlabPiece ceilingPiece = ceilingPieces.get(pieceIdx);
@@ -816,6 +882,164 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
         CityGmlUtils.addStringAttribute(wall, "Geschoss", storey.geschoss);
     }
 
+    // ==================== Geschosse oberhalb der Traufe ====================
+
+    /**
+     * Haengt Geschosse oberhalb der Traufe an, wenn eine Wand mit waagerechter Oberkante mindestens
+     * {@link #UPPER_STOREY_MIN_RISE_FACTOR} x Geschosshoehe darueber hinausragt (Fluegel, Turm,
+     * Treppenhauskopf ohne eigenen BuildingPart) und dort ein nicht fitzeliger Bereich unter dem
+     * Dach liegt. Das bisherige oberste Geschoss endet dann an der Traufe. true = erweitert
+     * (siehe Doku.md "Geschosse oberhalb der Traufe").
+     */
+    private boolean appendUpperStoreys(AbstractBuilding target, List<StoreyInfo> storeys, double traufeZ,
+            double gfHeight, double ufHeight, boolean slabsLimited, List<Double> buildingVertexZ,
+            Set<Double> newCutZ, GenerationStats stats) {
+        if (ufHeight <= 0 || storeys.isEmpty()) return false;
+        double minRise = UPPER_STOREY_MIN_RISE_FACTOR * ufHeight;
+
+        double topZ = Double.NEGATIVE_INFINITY;
+        for (var boundary : target.getBoundaries()) {
+            if (!(boundary.getObject() instanceof WallSurface wall)) continue;
+            if (CityGmlUtils.getStringAttribute(wall, "Geschoss") != null) continue; // Kellerwand
+            Polygon poly = BuildingQueryUtils.getWallPolygon(wall);
+            if (poly == null) continue;
+            List<Point3D> pts = GeometryUtils.removeClosingPoint(GeometryUtils.toPoints(poly));
+            if (pts.size() < 3) continue;
+            double zMax = GeometryUtils.getZRange(pts)[1];
+            if (zMax - traufeZ < minRise || zMax <= topZ) continue;
+            if (topEdgeWidth(pts, zMax) >= UPPER_STOREY_MIN_TOP_WIDTH) topZ = zMax;
+        }
+        if (topZ == Double.NEGATIVE_INFINITY) return false;
+        stats.upperStoreyCandidates++;
+
+        // Slab-Begrenzung (niedrigeres Anbaudach): Decken reichen dort nicht bis zur Traufe —
+        // neue Waende ohne passende Boeden waeren inkonsistent, daher auslassen.
+        if (slabsLimited) {
+            stats.upperSkippedSlabLimit++;
+            return false;
+        }
+
+        // Fitzelchen-Gate: in Mindesthoehe ueber der Traufe muss unter dem Dach ein zusammen-
+        // haengender, ausreichend grosser und breiter Bereich liegen.
+        List<Polygon> roofs = BuildingQueryUtils.collectRoofPolygons(target);
+        List<SlabPiece> region = new ArrayList<>();
+        for (Polygon ground : BuildingQueryUtils.collectGroundPolygons(target)) {
+            region.addAll(SlabClippingUtils.clipSlabAtZ(
+                    GeometryUtils.toPoints(ground), roofs, traufeZ + minRise, CUT_TOLERANCE));
+        }
+        if (!SlabClippingUtils.hasSubstantialRegion(region, UPPER_STOREY_MIN_AREA, UPPER_STOREY_MIN_WIDTH / 2)) {
+            stats.upperSkippedRegion++;
+            return false;
+        }
+
+        // Ist das bisherige oberste Geschoss vollstaendig, endet es CUT_TOLERANCE ueber der Traufe: die
+        // Traufpunkte der Waende und Dachkanten streuen mm-genau, ein Schnitt bzw. Deckenzuschnitt exakt
+        // auf Traufhoehe erzeugte dort Splitter, offene Naehte und selbstberuehrende Deckenringe. Ist es
+        // nur ein kurzes Restgeschoss oder bliebe darueber weniger als UPPER_STOREY_MIN_HEIGHT, wird der
+        // Stapel ab dessen Boden neu aufgebaut — sonst entstuende ein Fitzelchen-Geschoss.
+        int storeyCountBefore = storeys.size();
+        StoreyInfo prev = storeys.remove(storeys.size() - 1);
+        boolean prevIsGf = "GF".equals(prev.geschoss);
+        int ufNum = prevIsGf ? 0 : Integer.parseInt(prev.geschoss.substring(3));
+        double top = GeometryUtils.roundZ(topZ);
+        // Neue Grenzhoehen auf einem 1-cm-Raster und mindestens 1 cm neben allen Wand-/Dach-Eckpunkten des
+        // ganzen Gebaeudes: sonst entstehen an T-Naehten (auch zwischen Gebaeudeteilen mit mm-verschiedener
+        // Traufe) mm-Stummelkanten, die die Einfuege-Toleranz nicht mehr erfasst (offene Naehte).
+        final double clearance = 0.01;
+        java.util.function.DoubleUnaryOperator clearOfVertices = z0 -> {
+            double z = Math.ceil(z0 * 100 - 1e-6) / 100;
+            for (int step = 0; step < 10; step++) {
+                final double cz = z;
+                if (buildingVertexZ.stream().noneMatch(v -> Math.abs(v - cz) < clearance - 1e-6)) break;
+                z = Math.round((z + clearance) * 100) / 100.0;
+            }
+            return z;
+        };
+        double floorZ;
+        boolean gfPending = false;
+        double eaveBoundaryZ = clearOfVertices.applyAsDouble(GeometryUtils.roundZ(traufeZ + CUT_TOLERANCE));
+        if (prev.ceilingZ - prev.floorZ >= (prevIsGf ? gfHeight : ufHeight) - CUT_TOLERANCE
+                && top - eaveBoundaryZ >= UPPER_STOREY_MIN_HEIGHT) {
+            floorZ = eaveBoundaryZ;
+            storeys.add(new StoreyInfo(prev.geschoss, prev.floorZ, floorZ, false));
+            newCutZ.add(floorZ);
+        } else {
+            floorZ = prev.floorZ;
+            if (prevIsGf) gfPending = true; else ufNum--;
+        }
+        boolean done = false;
+        if (gfPending) {
+            double gfCeilingZ = clearOfVertices.applyAsDouble(GeometryUtils.roundZ(floorZ + gfHeight));
+            if (top - gfCeilingZ < Math.max(minRise, UPPER_STOREY_MIN_HEIGHT)) {
+                storeys.add(new StoreyInfo("GF", floorZ, top, true));
+                done = true;
+            } else {
+                storeys.add(new StoreyInfo("GF", floorZ, gfCeilingZ, false));
+                newCutZ.add(gfCeilingZ);
+                floorZ = gfCeilingZ;
+            }
+        }
+        if (!done) {
+            // Hoehe bis zur Wand-Oberkante gleichmaessig auf ganze Geschosse verteilen: kein Fitzelchen-Rest
+            // und kein ueberhohes Geschoss, je Geschoss aber mindestens UPPER_STOREY_MIN_HEIGHT.
+            double height = top - floorZ;
+            int count = Math.max(1, (int) Math.min(Math.round(height / ufHeight),
+                    Math.floor(height / UPPER_STOREY_MIN_HEIGHT)));
+            double step = height / count;
+            for (int i = 1; i <= count; i++) {
+                double ceilingZ = i == count ? top : clearOfVertices.applyAsDouble(GeometryUtils.roundZ(floorZ + step));
+                storeys.add(new StoreyInfo("UF_" + (++ufNum), floorZ, ceilingZ, i == count));
+                if (i < count) newCutZ.add(ceilingZ);
+                floorZ = ceilingZ;
+            }
+        }
+        // Kein zusaetzliches Geschoss (nur das Restgeschoss bis zur Oberkante verlaengert): bisheriger Stand.
+        if (storeys.size() <= storeyCountBefore) {
+            while (storeys.size() > storeyCountBefore - 1) storeys.remove(storeys.size() - 1);
+            storeys.add(prev);
+            newCutZ.clear();
+            stats.upperSkippedHeight++;
+            return false;
+        }
+        stats.upperStoreysAdded++;
+        log.debug("  Geschoss oberhalb der Traufe {}: Traufe={}, Oberkante={}, jetzt {} Geschosse",
+                target.getId(), GeometryUtils.formatNum(traufeZ), GeometryUtils.formatNum(top), storeys.size());
+        return true;
+    }
+
+    /** true, wenn eine nicht senkrechte Konturkante (Horizontalversatz > 1 cm) die Hoehe z kreuzt oder
+     *  hoechstens {@code band} darueber beginnt. */
+    static boolean slopedEdgeNear(List<Point3D> contour, double z, double band) {
+        int n = contour.size();
+        for (int i = 0; i < n; i++) {
+            Point3D a = contour.get(i), b = contour.get((i + 1) % n);
+            if (Math.hypot(b.x - a.x, b.y - a.y) <= 0.01) continue;
+            double lo = Math.min(a.z, b.z), hi = Math.max(a.z, b.z);
+            if (hi <= z + 0.001) continue;
+            if (lo <= z + band) return true;
+        }
+        return false;
+    }
+
+    /** Laengste zusammenhaengende waagerechte Oberkante (XY-Laenge) auf Hoehe zMax. */
+    static double topEdgeWidth(List<Point3D> pts, double zMax) {
+        // Nur zusammenhaengende Kanten zaehlen: einzelne Spitzen (Giebel, Saegezahn-Oberkante) liefern 0.
+        int n = pts.size();
+        double best = 0, run = 0, perimeter = 0;
+        for (int k = 0; k < 2 * n; k++) {
+            Point3D a = pts.get(k % n), b = pts.get((k + 1) % n);
+            double len = Math.hypot(b.x - a.x, b.y - a.y);
+            if (k < n) perimeter += len;
+            if (a.z >= zMax - CUT_TOLERANCE && b.z >= zMax - CUT_TOLERANCE) {
+                run += len;
+                best = Math.max(best, run);
+            } else {
+                run = 0;
+            }
+        }
+        return Math.min(best, perimeter);
+    }
+
     // ==================== Innere Klassen ====================
 
     /** Beschreibt ein Geschoss mit seinen Z-Grenzen. */
@@ -823,7 +1047,7 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
             String geschoss,    // Tag: GF, UF_1, UF_2, ... (BA wird vom BasementGenerator erzeugt)
             double floorZ,      // Unterkante (absolut, m ue. NHN)
             double ceilingZ,    // Oberkante (absolut)
-            boolean isTopStorey // true = oberstes Geschoss (reicht bis Traufe)
+            boolean isTopStorey // true = oberstes Geschoss (reicht bis Traufe bzw. Wand-Oberkante darueber)
     ) {}
 
     public static class GenerationStats extends AbstractGenerator.BaseStats {
@@ -832,6 +1056,13 @@ public class StoreyGenerator extends AbstractGenerator<StoreyGenerator.Generatio
         public int wallSegmentsCreated = 0;
         public int floorsCreated = 0;
         public int ceilingsCreated = 0;
+        /** Gebaeude(teile) mit zusaetzlichen Geschossen oberhalb der Traufe. */
+        public int upperStoreysAdded = 0;
+        /** Gebaeude(teile) mit einer Wand, die das Mindestmass ueber die Traufe ragt. */
+        public int upperStoreyCandidates = 0;
+        public int upperSkippedSlabLimit = 0;
+        public int upperSkippedRegion = 0;
+        public int upperSkippedHeight = 0;
     }
 
     // ==================== Slab-Geometrie ====================

@@ -469,6 +469,12 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
      * die nur die horizontale Fensterposition kennt). */
     private static final double WINDOW_TOP_NUDGE = 0.05;
 
+    /** Eckpunkte mit Sicherheitsabstand in der Wand UND keine Konturkante/-spitze im Fenster (Kerbe, Tal). */
+    private static boolean fitsInWall(double uLeft, double uRight, double vBottom, double vTop, double[][] wallPoly2D) {
+        return OpeningUtils.openingInsideWallSideTopClearance2D(uLeft, uRight, vBottom, vTop, wallPoly2D)
+                && !OpeningUtils.wallContourEntersOpening(uLeft, uRight, vBottom, vTop, wallPoly2D);
+    }
+
     /** Point-in-Polygon-Check je Fenster-Kandidat; Treffer ausserhalb (Giebel) werden verworfen. */
     private static List<double[]> collectValidWindows(WallContext ctx,
             List<double[]> rowZPositions, HorizResult horiz, GenerationStats stats) {
@@ -490,9 +496,9 @@ public class WindowGenerator extends AbstractGenerator<WindowGenerator.Generatio
                         stats.windowsDroppedCoveredByPart++;
                         continue;
                     }
-                    if (OpeningUtils.openingInsideWallSideTopClearance2D(uLeft, uRight, vBottom, vTop, wallPoly2D)) {
+                    if (fitsInWall(uLeft, uRight, vBottom, vTop, wallPoly2D)) {
                         validWindows.add(new double[]{hOffset, wBottomZ, wTopZ});
-                    } else if (vBottom - WINDOW_TOP_NUDGE >= 0 && OpeningUtils.openingInsideWallSideTopClearance2D(
+                    } else if (vBottom - WINDOW_TOP_NUDGE >= 0 && fitsInWall(
                             uLeft, uRight, vBottom - WINDOW_TOP_NUDGE, vTop - WINDOW_TOP_NUDGE, wallPoly2D)) {
                         validWindows.add(new double[]{hOffset,
                                 wBottomZ - WINDOW_TOP_NUDGE, wTopZ - WINDOW_TOP_NUDGE});

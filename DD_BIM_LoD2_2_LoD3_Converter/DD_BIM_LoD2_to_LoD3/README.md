@@ -109,13 +109,13 @@ CityGML LoD3
 
 **Single-Pass-Architektur:** jede Eingabedatei wird einmal gelesen, alle Schritte laufen pro Gebäude im Speicher, das Ergebnis wird einmal geschrieben — keine Zwischendateien.
 
-**Schritte 6+7 sind streng formneutral:** kein bestehender Vertex wird bewegt, nur fehlende Punkte auf bestehende Kanten eingefügt bzw. selbstberührende Ringe sauber aufgetrennt. Das Healing der Quellgeometrie (mm-Nähte, Planarität) bleibt beim nachgelagerten Healer.
+**Schritte 6+7 sind streng formneutral:** kein bestehender Vertex wird bewegt, nur fehlende Punkte auf bestehende Kanten eingefügt bzw. selbstberührende Ringe sauber aufgetrennt. Das Healing der Quellgeometrie (mm-Nähte, Planarität) bleibt beim vorgelagerten Healer, der nur auf den LoD2-Daten läuft.
 
 ---
 
 ## Baukörpermodule (JSON)
 
-Jedes Gebäude wird über sein `sst`-Attribut einem Modul zugeordnet (`{sst}.json` im `jsonDir`-Verzeichnis, ohne Treffer: `_default.json`). Ein Modul deckt bis zu 10 Kategorien ab (Keller `BA`, Erd-/Obergeschoss `GF`/`UF`, Dach `RO`, Versorgungsschächte `UT`, Balkon `GA`, Innenraum `IN`, Treppenhaus `FL`, Gebäudemaße `BU`, Fassadenmaterialien `FD`) — vollständige Feldreferenz: [Doku_Administrierende.md](Doku_Administrierende.md).
+Jedes Gebäude wird über sein `sst`-Attribut einem Modul zugeordnet (`{sst}.json` bzw. `{sst}_4.json` im `jsonDir`-Verzeichnis; ohne Treffer bleibt das Gebäude ohne LoD3-Details). Ein Modul deckt bis zu 10 Kategorien ab (Keller `BA`, Erd-/Obergeschoss `GF`/`UF`, Dach `RO`, Versorgungsschächte `UT`, Balkon `GA`, Innenraum `IN`, Treppenhaus `FL`, Gebäudemaße `BU`, Fassadenmaterialien `FD`) — vollständige Feldreferenz: [Doku_Administrierende.md](Doku_Administrierende.md).
 
 ---
 
@@ -134,7 +134,7 @@ Format wird automatisch erkannt (`DgmLoader`-Factory).
 
 ## Status
 
-Alle 8 Pipeline-Schritte (1–7 inkl. 4d/5a–5d) sind fertig und produktiv im Einsatz. Letzter kompletter Stadt-Lauf (Dresden, 98 Kacheln, 141.670 Gebäude): val3dity 98,36 % valide Features, CityDoctor2 92,24 % fehlerfreie Gebäude. Verifikationshistorie, Einzelfixe und genaue Zahlen: [Doku.md](Doku.md).
+Alle 8 Pipeline-Schritte (1–7 inkl. 4d/5a–5d) sind fertig und produktiv im Einsatz. Letzter kompletter Stadt-Lauf (Dresden, 98 Kacheln, 141.670 Gebäude): val3dity 98,52 % valide Features, CityDoctor2 94,63 % fehlerfreie Gebäude (Stand 2026-09-17). Verifikationshistorie, Einzelfixe und genaue Zahlen: [Doku.md](Doku.md).
 
 ---
 

@@ -29,7 +29,7 @@ class CityGmlUtilsRoofPlaneTest {
 
     @Test
     void computesUpSlopeVectorAlongPitch() {
-        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0);
+        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0, 0.0);
 
         assertNotNull(up);
         assertEquals(0.0, up[0], 0.0001, "Aufwaerts-Vektor darf keine X-Komponente haben (First laeuft parallel zur Traufe)");
@@ -39,11 +39,11 @@ class CityGmlUtilsRoofPlaneTest {
 
     @Test
     void projectsEaveAtVZeroAndRidgeAtSlopeDistance() {
-        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0);
+        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0, 0.0);
         assertNotNull(up);
 
         double[][] poly2D = GeometryUtils.projectPlaneTo2D(
-                ROOF_CCW, ROOF_CCW.get(0), 1.0, 0.0, up[0], up[1], up[2]);
+                ROOF_CCW, ROOF_CCW.get(0), 1.0, 0.0, 0.0, up[0], up[1], up[2]);
 
         // Traufpunkte (Index 0,1): v=0
         assertEquals(0.0, poly2D[0][1], 0.0001);
@@ -61,16 +61,16 @@ class CityGmlUtilsRoofPlaneTest {
 
     @Test
     void detectsCCWWindingOnPlane() {
-        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0);
+        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0, 0.0);
         assertNotNull(up);
 
         assertTrue(SolidShellUtils.isRingCCWOnPlane(
-                ROOF_CCW, ROOF_CCW.get(0), 1.0, 0.0, up[0], up[1], up[2]));
+                ROOF_CCW, ROOF_CCW.get(0), 1.0, 0.0, 0.0, up[0], up[1], up[2]));
     }
 
     @Test
     void detectsCWWindingOnPlaneForReversedRing() {
-        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0);
+        double[] up = GeometryUtils.computeUpSlopeVector(ROOF_CCW, 1.0, 0.0, 0.0);
         assertNotNull(up);
 
         List<Point3D> reversed = List.copyOf(ROOF_CCW);
@@ -78,6 +78,6 @@ class CityGmlUtilsRoofPlaneTest {
         Collections.reverse(reversedList);
 
         assertFalse(SolidShellUtils.isRingCCWOnPlane(
-                reversedList, ROOF_CCW.get(0), 1.0, 0.0, up[0], up[1], up[2]));
+                reversedList, ROOF_CCW.get(0), 1.0, 0.0, 0.0, up[0], up[1], up[2]));
     }
 }
